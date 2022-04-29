@@ -66,6 +66,12 @@ func (l *Location) fromByte(b uint8) {
 	l.y = int((b) & 0b111)
 }
 
+func pgnToByte(pgn string) uint8 {
+	l := Location{}
+	l.frompgn(pgn)
+	return l.toByte()
+}
+
 type Piece uint8
 
 type PlayerPieces [16]Piece
@@ -547,8 +553,140 @@ func (c *Chessboard) Duplicate() Chessboard {
 	}
 }
 
+var pieceValue = map[int]int{
+	0: 5,
+	1: 3,
+	2: 3,
+	3: 9,
+	4: 420,
+	5: 3,
+	6: 3,
+	7: 5,
+
+	8:  1,
+	9:  1,
+	10: 1,
+	11: 1,
+	12: 1,
+	13: 1,
+	14: 1,
+	15: 1,
+}
+
 func (c *Chessboard) evaluate() int {
-	return 0
+	total := 0
+	for idx, loc := range c.white {
+		if loc == 0 {
+			continue
+		}
+		total += pieceValue[idx]
+	}
+	for idx, loc := range c.black {
+		if loc == 0 {
+			continue
+		}
+		total -= pieceValue[idx]
+	}
+	return total
+}
+
+func (c *Chessboard) bestMove(team bool, depth int) (int, Piece, Location) {
+	bestScore := 0
+	bestPiece := Piece(0)
+	bestLocation := Location{}
+	if team {
+		bestScore := -421
+		for idx, pos := range c.white {
+			if pos == 0 {
+				continue
+			}
+			start_pos := Location{}
+			piecei := pieceMap[indexPieceMap[idx][0]]
+			start_pos.fromByte(uint8(pos))
+
+			for moveLines := 0; moveLines < 8; moveLines++ {
+				for move := 0; move < 7; move++ {
+					value := moveset.Mset[piecei+56*start_pos.y+56*8*start_pos.x+moveLines*7+move]
+
+					if value == 0 {
+						break
+					}
+
+					end_pos := Location{}
+					end_pos.fromByte(value)
+					newBoard := c.Duplicate()
+					if !newBoard.MakeMove(uint8(idx), team, end_pos) {
+						continue
+					}
+
+					if depth-1 == 0 {
+						move_score := newBoard.evaluate()
+						if move_score > bestScore {
+							bestScore = move_score
+							bestPiece = Piece(idx)
+							bestLocation = end_pos
+						}
+					} else {
+						subscore, _, _ := newBoard.bestMove(!team, depth-1)
+						//log.Printf("%d %d %s", subscore, subpiece, subloc.pgn())
+						if subscore > bestScore {
+							bestScore = subscore
+							bestPiece = Piece(idx)
+							bestLocation = end_pos
+						}
+					}
+
+				}
+			}
+		}
+
+	} else {
+		bestScore := 421
+		for idx, pos := range c.white {
+			if pos == 0 {
+				continue
+			}
+			start_pos := Location{}
+			piecei := pieceMap[indexPieceMap[idx][0]]
+			start_pos.fromByte(uint8(pos))
+
+			for moveLines := 0; moveLines < 8; moveLines++ {
+				for move := 0; move < 7; move++ {
+					value := moveset.Mset[piecei+56*start_pos.y+56*8*start_pos.x+moveLines*7+move]
+
+					if value == 0 {
+						break
+					}
+
+					end_pos := Location{}
+					end_pos.fromByte(value)
+					newBoard := c.Duplicate()
+					if !newBoard.MakeMove(uint8(idx), team, end_pos) {
+						continue
+					}
+
+					if depth-1 == 0 {
+						move_score := newBoard.evaluate()
+						if move_score < bestScore {
+							bestScore = move_score
+							bestPiece = Piece(idx)
+							bestLocation = end_pos
+						}
+					} else {
+						subscore, _, _ := newBoard.bestMove(!team, depth-1)
+						if subscore < bestScore {
+							bestScore = subscore
+							bestPiece = Piece(idx)
+							bestLocation = end_pos
+						}
+					}
+
+				}
+			}
+		}
+	}
+
+	return bestScore, bestPiece, bestLocation
 }
 
 func main() {
@@ -564,18 +702,27 @@ func main() {
 	//log.Println(isMoveValid(piece, start_pos, end_pos))
 
 	board := Chessboard{}
-	board.Init()
 
-	board.black[5] = 0
-	board.black[6] = 0
-	board.black[12] = 0
-	//board.black[3] = Piece(start_pos.toByte())
-	board.black[1] = 0
-	board.black[2] = 0
-	board.black[3] = 0
+	board.white[4] = Piece(pgnToByte("h8"))
+	board.white[3] = Piece(pgnToByte("a1"))
+	board.white[0] = Piece(pgnToByte("h7"))
 
-	l := Location{x: 6, y: 7}
-	board.MakeMove(4, false, l)
+	board.black[4] = Piece(pgnToByte("a8"))
+	board.black[0] = Piece(pgnToByte("a7"))
+
 	log.Println(board.fen())
+
+	_, bp, bv := board.bestMove(true, 2)
+	board.MakeMove(uint8(bp), true, bv)
+	log.Println(board.fen())
+
+	/*_, bp, bv = board.bestMove(false, 2)
+	board.MakeMove(uint8(bp), false, bv)
+	log.Println(bp)
+	log.Println(board.fen())
+
+	_, bp, bv = board.bestMove(true, 2)
+	board.MakeMove(uint8(bp), true, bv)
+	log.Println(board.fen())*/
 
 }
