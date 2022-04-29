@@ -167,9 +167,11 @@ func (c *Chessboard) fen() string {
 }
 
 func (c *Chessboard) hasPieceInPosition(position uint8, enpassant bool) (bool, int) {
+	l := Location{}
+	l.fromByte(position)
 	if enpassant {
 		if position == c.enpassant {
-			return true, int(1<<4 | ((position >> 3) & 0b111))
+			return true, int(((position >> 3) & 0b111) + 8)
 		}
 	}
 	for idx, p := range c.white {
@@ -183,6 +185,82 @@ func (c *Chessboard) hasPieceInPosition(position uint8, enpassant bool) (bool, i
 		}
 	}
 	return false, 0
+}
+
+func (c *Chessboard) pieceAttacks(piece int, team bool, end_pos Location) bool {
+
+	start_pos := Location{}
+	piecei := pieceMap[indexPieceMap[int(piece)][0]]
+	if team {
+		start_pos.fromByte(uint8(c.white[piece]))
+		piecei = pieceMap[indexPieceMap[int(piece)][0]]
+	} else {
+		start_pos.fromByte(uint8(c.black[piece]))
+		if indexPieceMap[int(piece)][0] == 'p' {
+			piecei = pieceMap['P']
+		}
+	}
+	ep := end_pos.toByte()
+	for moveLines := 0; moveLines < 8; moveLines++ {
+		for move := 0; move < 7; move++ {
+			value := moveset.Mset[piecei+56*start_pos.y+56*8*start_pos.x+moveLines*7+move]
+
+			if value == 0 {
+				break
+			}
+			if (ep & 0b111111) == (value & 0b111111) {
+
+				return true
+
+			} else {
+				if c, _ := c.hasPieceInPosition((value&0b111111)|1<<7, false); c {
+					break
+				}
+			}
+
+		}
+	}
+	return false
+}
+
+func (c *Chessboard) isSquareAttacked(team_attacking bool, loc Location) bool {
+	if team_attacking {
+		for idx, pos := range c.white {
+			if pos == 0 {
+				continue
+			}
+
+			attack := c.pieceAttacks(idx, team_attacking, loc)
+			if attack {
+				return true
+			}
+		}
+	} else {
+		for idx, pos := range c.black {
+			if pos == 0 {
+				continue
+			}
+
+			attack := c.pieceAttacks(idx, team_attacking, loc)
+			if attack {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (c *Chessboard) verifyState(team bool) bool {
+	if team {
+		kingloc := Location{}
+		kingloc.fromByte(uint8(c.white[4]))
+		return !c.isSquareAttacked(!team, kingloc)
+	} else {
+		kingloc := Location{}
+		kingloc.fromByte(uint8(c.black[4]))
+		return !c.isSquareAttacked(!team, kingloc)
+	}
+	return true
 }
 
 func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
@@ -204,6 +282,149 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 	valid := false
 	enpassant := false
 	enpassant_active := false
+
+	// Check for castling
+	castling := false
+	if piece == 4 {
+		if team {
+			if c.wK {
+				if end_pos == (Location{x: 6, y: 0}) {
+
+					if c.isSquareAttacked(!team, start_pos) {
+						return false
+					}
+					sq1 := Location{x: 5, y: 0}
+					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
+						return false
+					}
+					if c.isSquareAttacked(!team, sq1) {
+						return false
+					}
+
+					sq2 := Location{x: 6, y: 0}
+					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
+						return false
+					}
+					if c.isSquareAttacked(!team, sq2) {
+						return false
+					}
+
+					c.white[4] = Piece(end_pos.toByte())
+					c.white[7] = Piece(sq1.toByte())
+					castling = true
+					c.wK = false
+					c.wQ = false
+
+				}
+			}
+			if c.wQ {
+				if end_pos == (Location{x: 2, y: 0}) {
+
+					if c.isSquareAttacked(!team, start_pos) {
+						return false
+					}
+					sq1 := Location{x: 1, y: 0}
+					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
+						return false
+					}
+
+					sq2 := Location{x: 2, y: 0}
+					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
+						return false
+					}
+					if c.isSquareAttacked(!team, sq2) {
+						return false
+					}
+
+					sq3 := Location{x: 3, y: 0}
+					if c, _ := c.hasPieceInPosition(sq3.toByte(), false); c {
+						return false
+					}
+					if c.isSquareAttacked(!team, sq3) {
+						return false
+					}
+
+					c.white[4] = Piece(end_pos.toByte())
+					c.white[0] = Piece(sq3.toByte())
+					castling = true
+					c.wK = false
+					c.wQ = false
+
+				}
+			}
+
+		} else {
+			if c.bK {
+				if end_pos == (Location{x: 6, y: 7}) {
+
+					if c.isSquareAttacked(!team, start_pos) {
+						return false
+					}
+					sq1 := Location{x: 5, y: 7}
+					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
+						return false
+					}
+					if c.isSquareAttacked(!team, sq1) {
+						return false
+					}
+
+					sq2 := Location{x: 6, y: 7}
+					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
+						return false
+					}
+					if c.isSquareAttacked(!team, sq2) {
+						return false
+					}
+
+					c.black[4] = Piece(end_pos.toByte())
+					c.black[7] = Piece(sq1.toByte())
+					castling = true
+					c.bK = false
+					c.bQ = false
+
+				}
+			}
+			if c.bQ {
+				if end_pos == (Location{x: 2, y: 7}) {
+
+					if c.isSquareAttacked(!team, start_pos) {
+						return false
+					}
+					sq1 := Location{x: 1, y: 7}
+					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
+						return false
+					}
+
+					sq2 := Location{x: 2, y: 7}
+					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
+						return false
+					}
+					if c.isSquareAttacked(!team, sq2) {
+						return false
+					}
+
+					sq3 := Location{x: 3, y: 7}
+					if c, _ := c.hasPieceInPosition(sq3.toByte(), false); c {
+						return false
+					}
+					if c.isSquareAttacked(!team, sq3) {
+						return false
+					}
+
+					c.black[4] = Piece(end_pos.toByte())
+					c.black[0] = Piece(sq3.toByte())
+					castling = true
+					c.bK = false
+					c.bQ = false
+
+				}
+			}
+		}
+	}
+	if castling {
+		c.toMove = !c.toMove
+		return true
+	}
 	ep := end_pos.toByte()
 	for moveLines := 0; moveLines < 8; moveLines++ {
 		for move := 0; move < 7; move++ {
@@ -247,9 +468,6 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 		}
 	}
 
-	if !enpassant_active {
-		c.enpassant = 0
-	}
 	if !valid {
 		return false
 	}
@@ -257,20 +475,24 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 	// Check if piece can capture target (if there is a target)
 	target, target_p := c.hasPieceInPosition(ep, enpassant)
 	if target {
-		pieceTeam := target_p >> 4
-		// Cannot capture your own pieces
-		if pieceTeam == 1 && team {
-			return false
+		if !enpassant {
+			pieceTeam := target_p >> 4
+			// Cannot capture your own pieces
+			if pieceTeam == 1 && team {
+				return false
+			}
+			if pieceTeam == 0 && !team {
+				return false
+			}
 		}
+
 	}
 
 	// Make the Move and check if king is in check
 	if team {
 		c.white[piece] = Piece(ep)
-		c.black[target_p&0xF] = 0
 	} else {
 		c.black[piece] = Piece(ep)
-		c.white[target_p&0xF] = 0
 	}
 	if target {
 		if team {
@@ -280,18 +502,62 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 		}
 	}
 
-	// c.isKingInCheck(team)
+	if !enpassant_active {
+		c.enpassant = 0
+	}
+	if !c.verifyState(team) {
+		if team {
+			c.white[piece] = Piece(start_pos.toByte())
+		} else {
+			c.black[piece] = Piece(start_pos.toByte())
+		}
+		if target {
+			if team {
+				c.black[target_p&0xF] = Piece(ep)
+			} else {
+				c.white[target_p&0xF] = Piece(ep)
+			}
+		}
+		return false
+	}
+
+	if piece == 4 {
+		if team {
+			c.wK = false
+			c.wQ = false
+		}
+
+	}
 	c.toMove = !c.toMove
 	return true
 }
 
+func (c *Chessboard) Duplicate() Chessboard {
+	return Chessboard{
+		white:     c.white,
+		black:     c.black,
+		toMove:    c.toMove,
+		wK:        c.wK,
+		wQ:        c.wQ,
+		bK:        c.bK,
+		bQ:        c.bQ,
+		enpassant: c.enpassant,
+		mc:        c.mc,
+		rounds:    c.rounds,
+	}
+}
+
+func (c *Chessboard) evaluate() int {
+	return 0
+}
+
 func main() {
-	start := "qa1"
+	start := "e4"
 	end := "d4"
 
 	//piece := start[0]
 	start_pos := Location{}
-	start_pos.frompgn(start[1:])
+	start_pos.frompgn(start)
 	end_pos := Location{}
 	end_pos.frompgn(end)
 
@@ -300,13 +566,16 @@ func main() {
 	board := Chessboard{}
 	board.Init()
 
-	board.black[11] = 0b100011 | 1<<7
+	board.black[5] = 0
+	board.black[6] = 0
+	board.black[12] = 0
+	//board.black[3] = Piece(start_pos.toByte())
+	board.black[1] = 0
+	board.black[2] = 0
+	board.black[3] = 0
 
+	l := Location{x: 6, y: 7}
+	board.MakeMove(4, false, l)
 	log.Println(board.fen())
-	log.Println(board.MakeMove(11, true, end_pos))
-	log.Printf(board.fen())
-	enpassant := Location{}
-	enpassant.frompgn("d3")
-	log.Println(board.MakeMove(11, false, enpassant))
-	log.Println(board.fen())
+
 }
