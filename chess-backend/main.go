@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"strings"
 	"yrk06/chess-backend/moveset"
@@ -74,6 +75,11 @@ func pgnToByte(pgn string) uint8 {
 	l := Location{}
 	l.frompgn(pgn)
 	return l.toByte()
+}
+
+type PossibleMove struct {
+	piece   int
+	end_pos Location
 }
 
 type Piece uint8
@@ -300,6 +306,7 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 	valid := false
 	enpassant := false
 	enpassant_active := false
+	canAttack := true
 
 	// Check for castling
 	castling := false
@@ -462,12 +469,16 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 							c.enpassant = l.toByte()
 							enpassant_active = true
 						}
+						canAttack = false
 						valid = true
 					} else {
 						// Take en passant into account
-						if c, _ := c.hasPieceInPosition((value&0b111111)|1<<7, true); c {
+						if co, _ := c.hasPieceInPosition((value&0b111111)|1<<7, true); co {
 							valid = true
-							enpassant = true
+							if c.enpassant != 0 {
+								enpassant = true
+							}
+
 						}
 					}
 				} else {
@@ -493,15 +504,16 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 	// Check if piece can capture target (if there is a target)
 	target, target_p := c.hasPieceInPosition(ep, enpassant)
 	if target {
-		if !enpassant {
-			pieceTeam := target_p >> 4
-			// Cannot capture your own pieces
-			if pieceTeam == 1 && team {
-				return false
-			}
-			if pieceTeam == 0 && !team {
-				return false
-			}
+		pieceTeam := target_p >> 4
+		// Cannot capture your own pieces
+		if pieceTeam == 1 && team {
+			return false
+		}
+		if pieceTeam == 0 && !team {
+			return false
+		}
+		if !canAttack {
+			return false
 		}
 
 	}
@@ -613,6 +625,75 @@ var pieceValue = map[int]int{
 	15: 1,
 }
 
+func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
+	moves := make([]PossibleMove, 0)
+	if team {
+		for idx, pos := range c.white {
+			if pos == 0 {
+				continue
+			}
+			start_pos := Location{}
+			piecei := pieceMap[indexPieceMap[idx][0]]
+			start_pos.fromByte(uint8(pos))
+
+			for moveLines := 0; moveLines < 8; moveLines++ {
+				for move := 0; move < 7; move++ {
+					value := moveset.Mset[piecei+56*start_pos.y+56*8*start_pos.x+moveLines*7+move]
+
+					if value == 0 {
+						break
+					}
+
+					end_pos := Location{}
+					end_pos.fromByte(value)
+					newBoard := c.Duplicate()
+					if !newBoard.MakeMove(uint8(idx), team, end_pos) {
+						continue
+					}
+
+					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos})
+
+				}
+			}
+		}
+	} else {
+		for idx, pos := range c.black {
+			if pos == 0 {
+				continue
+			}
+			start_pos := Location{}
+			piecei := pieceMap[indexPieceMap[idx][0]]
+			if idx > 7 {
+				piecei = pieceMap['P']
+			}
+
+			start_pos.fromByte(uint8(pos))
+
+			for moveLines := 0; moveLines < 8; moveLines++ {
+				for move := 0; move < 7; move++ {
+					value := moveset.Mset[piecei+56*start_pos.y+56*8*start_pos.x+moveLines*7+move]
+
+					if value == 0 {
+						break
+					}
+
+					end_pos := Location{}
+					end_pos.fromByte(value)
+					newBoard := c.Duplicate()
+					if !newBoard.MakeMove(uint8(idx), team, end_pos) {
+						continue
+					}
+
+					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos})
+
+				}
+			}
+		}
+	}
+
+	return moves
+}
+
 func (c *Chessboard) evaluate() int {
 	total := 0
 	for idx, loc := range c.white {
@@ -634,100 +715,13 @@ func (c *Chessboard) bestMove(team bool, depth int) (int, Piece, Location) {
 	bestScore := 0
 	bestPiece := Piece(0)
 	bestLocation := Location{}
-	if team {
-		bestScore := -421
-		for idx, pos := range c.white {
-			if pos == 0 {
-				continue
-			}
-			start_pos := Location{}
-			piecei := pieceMap[indexPieceMap[idx][0]]
-			start_pos.fromByte(uint8(pos))
-
-			for moveLines := 0; moveLines < 8; moveLines++ {
-				for move := 0; move < 7; move++ {
-					value := moveset.Mset[piecei+56*start_pos.y+56*8*start_pos.x+moveLines*7+move]
-
-					if value == 0 {
-						break
-					}
-
-					end_pos := Location{}
-					end_pos.fromByte(value)
-					newBoard := c.Duplicate()
-					if !newBoard.MakeMove(uint8(idx), team, end_pos) {
-						continue
-					}
-
-					if depth-1 == 0 {
-						move_score := newBoard.evaluate()
-						if move_score > bestScore {
-							bestScore = move_score
-							bestPiece = Piece(idx)
-							bestLocation = end_pos
-						}
-					} else {
-						subscore, _, _ := newBoard.bestMove(!team, depth-1)
-						//log.Printf("%d %d %s", subscore, subpiece, subloc.pgn())
-						if subscore > bestScore {
-							bestScore = subscore
-							bestPiece = Piece(idx)
-							bestLocation = end_pos
-						}
-					}
-
-				}
-			}
-		}
-
-	} else {
-		bestScore := 421
-		for idx, pos := range c.white {
-			if pos == 0 {
-				continue
-			}
-			start_pos := Location{}
-			piecei := pieceMap[indexPieceMap[idx][0]]
-			start_pos.fromByte(uint8(pos))
-
-			for moveLines := 0; moveLines < 8; moveLines++ {
-				for move := 0; move < 7; move++ {
-					value := moveset.Mset[piecei+56*start_pos.y+56*8*start_pos.x+moveLines*7+move]
-
-					if value == 0 {
-						break
-					}
-
-					end_pos := Location{}
-					end_pos.fromByte(value)
-					newBoard := c.Duplicate()
-					if !newBoard.MakeMove(uint8(idx), team, end_pos) {
-						continue
-					}
-
-					if depth-1 == 0 {
-						move_score := newBoard.evaluate()
-						if move_score < bestScore {
-							bestScore = move_score
-							bestPiece = Piece(idx)
-							bestLocation = end_pos
-						}
-					} else {
-						subscore, _, _ := newBoard.bestMove(!team, depth-1)
-						if subscore < bestScore {
-							bestScore = subscore
-							bestPiece = Piece(idx)
-							bestLocation = end_pos
-						}
-					}
-
-				}
-			}
-		}
-	}
 
 	return bestScore, bestPiece, bestLocation
 }
+
+/*func (c *Chessboard) max(depth int) (int, Piece, Location) {
+	if depth == 0
+}*/
 
 var upgrader = websocket.Upgrader{} // use default options
 
@@ -741,6 +735,8 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	board := Chessboard{}
 	board.Init()
 	m := 0
+	self := false
+	player := true
 	for {
 
 		mt, message, err := c.ReadMessage()
@@ -748,7 +744,9 @@ func echo(w http.ResponseWriter, r *http.Request) {
 			log.Println("read:", err)
 			break
 		}
+		botvalid := false
 		if m != 0 {
+			// Player
 			move := strings.Split(string(message), "-")
 			team := true
 			pieceRune := strings.ToLower(string(move[0][1]))[0]
@@ -757,31 +755,96 @@ func echo(w http.ResponseWriter, r *http.Request) {
 			if move[0][0] == 'b' {
 				team = false
 			}
-			if team {
-				for _, v := range pieceIndexMap[pieceRune] {
-					if board.white[v] == Piece(pgnToByte(move[1])) {
-						found_piece = true
-						piece = v
+			if team == player {
+				// player
+				if player {
+					for _, v := range pieceIndexMap[pieceRune] {
+						if board.white[v] == Piece(pgnToByte(move[1])) {
+							found_piece = true
+							piece = v
+						}
+					}
+				} else {
+					for _, v := range pieceIndexMap[pieceRune] {
+						if board.black[v] == Piece(pgnToByte(move[1])) {
+							found_piece = true
+							piece = v
+						}
 					}
 				}
-			} else {
-				for _, v := range pieceIndexMap[pieceRune] {
-					if board.black[v] == Piece(pgnToByte(move[1])) {
-						found_piece = true
-						piece = v
-					}
+				valid := false
+				if found_piece {
+					log.Printf("Move piece %d %t to %s", piece, team, move[2])
+					l := Location{}
+					l.frompgn(move[2])
+					valid = board.MakeMove(uint8(piece), team, l)
 				}
-			}
-			if found_piece {
-				log.Printf("Move piece %d %t to %s", piece, team, move[2])
-				l := Location{}
-				l.frompgn(move[2])
-				board.MakeMove(uint8(piece), team, l)
-			}
 
+				// Bot
+				if valid {
+					pm := board.possibleMoves(self)
+					if len(pm) != 0 {
+						pick := pm[rand.Intn(len(pm))]
+						botvalid = board.MakeMove(uint8(pick.piece), self, pick.end_pos)
+					}
+				}
+
+			}
+		} else {
+			if string(message) == "black" {
+				player = false
+				self = true
+			}
+			if self {
+				pm := board.possibleMoves(self)
+				if len(pm) != 0 {
+					pick := pm[rand.Intn(len(pm))]
+					botvalid = board.MakeMove(uint8(pick.piece), self, pick.end_pos)
+				}
+
+			}
 		}
 		m += 1
 		log.Printf("recv: %s", message)
+
+		if botvalid {
+			if len(board.possibleMoves(player)) == 0 {
+
+				if !board.verifyState(player) {
+					err = c.WriteMessage(mt, []byte("Checkmate"))
+				} else {
+					err = c.WriteMessage(mt, []byte("Draw"))
+				}
+			}
+		} else {
+			if len(board.possibleMoves(self)) == 0 {
+				if !board.verifyState(self) {
+					err = c.WriteMessage(mt, []byte("Checkmate"))
+				} else {
+					err = c.WriteMessage(mt, []byte("Draw"))
+				}
+
+			}
+		}
+		pcw := 0
+		pcb := 0
+
+		for _, p := range board.white {
+			if p != 0 {
+				pcw++
+			}
+		}
+
+		for _, p := range board.black {
+			if p != 0 {
+				pcb++
+			}
+		}
+
+		if pcw == pcb && pcw == 1 {
+			err = c.WriteMessage(mt, []byte("stalemate"))
+		}
+
 		err = c.WriteMessage(mt, []byte(board.fen()))
 		if err != nil {
 			log.Println("write:", err)
@@ -798,6 +861,12 @@ func main() {
 	}
 	flag.Parse()
 	log.SetFlags(0)
+	c := Chessboard{}
+	c.white[4] = Piece(pgnToByte("a1"))
+	c.black[0] = Piece(pgnToByte("a8"))
+	c.black[3] = Piece(pgnToByte("b8"))
+	log.Println(c.fen())
+	log.Println(len(c.possibleMoves(false)))
 	http.HandleFunc("/echo", echo)
 	http.ListenAndServe(*addr, nil)
 }
