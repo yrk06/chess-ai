@@ -1,10 +1,14 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"yrk06/chess-backend/moveset"
+
+	"github.com/gorilla/websocket"
 )
 
 /*
@@ -93,6 +97,15 @@ var indexPieceMap = map[int]string{
 	13: "p",
 	14: "p",
 	15: "p",
+}
+
+var pieceIndexMap = map[byte][]int{
+	'r': {0, 7},
+	'n': {1, 6},
+	'b': {2, 5},
+	'q': {3},
+	'k': {4},
+	'p': {8, 9, 10, 11, 12, 13, 14, 15},
 }
 
 type Chessboard struct {
@@ -266,7 +279,6 @@ func (c *Chessboard) verifyState(team bool) bool {
 		kingloc.fromByte(uint8(c.black[4]))
 		return !c.isSquareAttacked(!team, kingloc)
 	}
-	return true
 }
 
 func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
@@ -500,10 +512,27 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 	} else {
 		c.black[piece] = Piece(ep)
 	}
+	oldbQ := c.bQ
+	oldbK := c.bK
+
+	oldwQ := c.wQ
+	oldwK := c.wK
 	if target {
 		if team {
+			if target_p&0xF == 0 {
+				c.bQ = false
+			}
+			if target_p&0xF == 7 {
+				c.bK = false
+			}
 			c.black[target_p&0xF] = 0
 		} else {
+			if target_p&0xF == 0 {
+				c.wQ = false
+			}
+			if target_p&0xF == 7 {
+				c.wK = false
+			}
 			c.white[target_p&0xF] = 0
 		}
 	}
@@ -519,8 +548,20 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 		}
 		if target {
 			if team {
+				if target_p&0xF == 0 {
+					c.bQ = oldbQ
+				}
+				if target_p&0xF == 7 {
+					c.bK = oldbK
+				}
 				c.black[target_p&0xF] = Piece(ep)
 			} else {
+				if target_p&0xF == 0 {
+					c.wQ = oldwQ
+				}
+				if target_p&0xF == 7 {
+					c.wK = oldwK
+				}
 				c.white[target_p&0xF] = Piece(ep)
 			}
 		}
@@ -532,7 +573,6 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 			c.wK = false
 			c.wQ = false
 		}
-
 	}
 	c.toMove = !c.toMove
 	return true
@@ -689,40 +729,75 @@ func (c *Chessboard) bestMove(team bool, depth int) (int, Piece, Location) {
 	return bestScore, bestPiece, bestLocation
 }
 
-func main() {
-	start := "e4"
-	end := "d4"
+var upgrader = websocket.Upgrader{} // use default options
 
-	//piece := start[0]
-	start_pos := Location{}
-	start_pos.frompgn(start)
-	end_pos := Location{}
-	end_pos.frompgn(end)
-
-	//log.Println(isMoveValid(piece, start_pos, end_pos))
-
+func echo(w http.ResponseWriter, r *http.Request) {
+	c, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Print("upgrade:", err)
+		return
+	}
+	defer c.Close()
 	board := Chessboard{}
+	board.Init()
+	m := 0
+	for {
 
-	board.white[4] = Piece(pgnToByte("h8"))
-	board.white[3] = Piece(pgnToByte("a1"))
-	board.white[0] = Piece(pgnToByte("h7"))
+		mt, message, err := c.ReadMessage()
+		if err != nil {
+			log.Println("read:", err)
+			break
+		}
+		if m != 0 {
+			move := strings.Split(string(message), "-")
+			team := true
+			pieceRune := strings.ToLower(string(move[0][1]))[0]
+			piece := -1
+			found_piece := false
+			if move[0][0] == 'b' {
+				team = false
+			}
+			if team {
+				for _, v := range pieceIndexMap[pieceRune] {
+					if board.white[v] == Piece(pgnToByte(move[1])) {
+						found_piece = true
+						piece = v
+					}
+				}
+			} else {
+				for _, v := range pieceIndexMap[pieceRune] {
+					if board.black[v] == Piece(pgnToByte(move[1])) {
+						found_piece = true
+						piece = v
+					}
+				}
+			}
+			if found_piece {
+				log.Printf("Move piece %d %t to %s", piece, team, move[2])
+				l := Location{}
+				l.frompgn(move[2])
+				board.MakeMove(uint8(piece), team, l)
+			}
 
-	board.black[4] = Piece(pgnToByte("a8"))
-	board.black[0] = Piece(pgnToByte("a7"))
+		}
+		m += 1
+		log.Printf("recv: %s", message)
+		err = c.WriteMessage(mt, []byte(board.fen()))
+		if err != nil {
+			log.Println("write:", err)
+			break
+		}
+	}
+}
 
-	log.Println(board.fen())
+var addr = flag.String("addr", "localhost:8080", "http service address")
 
-	_, bp, bv := board.bestMove(true, 2)
-	board.MakeMove(uint8(bp), true, bv)
-	log.Println(board.fen())
-
-	/*_, bp, bv = board.bestMove(false, 2)
-	board.MakeMove(uint8(bp), false, bv)
-	log.Println(bp)
-	log.Println(board.fen())
-
-	_, bp, bv = board.bestMove(true, 2)
-	board.MakeMove(uint8(bp), true, bv)
-	log.Println(board.fen())*/
-
+func main() {
+	upgrader.CheckOrigin = func(r *http.Request) bool {
+		return true
+	}
+	flag.Parse()
+	log.SetFlags(0)
+	http.HandleFunc("/echo", echo)
+	http.ListenAndServe(*addr, nil)
 }
