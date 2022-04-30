@@ -7,23 +7,26 @@ let wsclose = true;
 const connectGame = (state) => {
     if (ws == null || wsclose) {
         ws = new WebSocket(`ws://localhost:8080/echo`)
-        ws.onopen = () => {
-            ws.send("hi")
-        }
-        ws.onclose = () => {
-            wsclose = true
-        }
-        ws.onmessage = (data) => {
-            const {setBoardPos} = state
-            const board = converters.fen2json(data.data.split(" ")[0])
-            console.log(board)
-            for(let key of Object.keys(board)){
-                board[key] = board[key].charAt(1) + String(board[key].charAt(0)).toUpperCase();
-            }
-            console.log(board)
-            setBoardPos(board)
-        }
+        
         wsclose = false
+    }
+    ws.onopen = () => {
+        ws.send(state.s)
+    }
+    ws.onclose = () => {
+        wsclose = true
+    }
+    ws.onmessage = (data) => {
+        const {setBoardPos} = state
+        console.log(data.data)
+        const board = converters.fen2json(data.data.split(" ")[0])
+        //console.log(board)
+        let newBoard = {}
+        for(let key of Object.keys(board)){
+            newBoard[key] = board[key].charAt(1) + String(board[key].charAt(0)).toUpperCase();
+        }
+        setBoardPos(data.data)
+        
     }
     
 }
