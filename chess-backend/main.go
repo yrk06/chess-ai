@@ -21,9 +21,8 @@ Offset	Piece
 14336	BISHOP
 17920	QUEEN
 21504	KING
-
-
 */
+
 var pieceMap = map[byte]int{
 	'p': 0,
 	'P': 3584,
@@ -84,7 +83,7 @@ type PossibleMove struct {
 
 type Piece uint8
 
-type PlayerPieces [16]Piece
+type PlayerPieces [24]Piece
 
 var indexPieceMap = map[int]string{
 	0:  "r",
@@ -115,16 +114,18 @@ var pieceIndexMap = map[byte][]int{
 }
 
 type Chessboard struct {
-	white     PlayerPieces
-	black     PlayerPieces
-	toMove    bool
-	wK        bool
-	wQ        bool
-	bK        bool
-	bQ        bool
-	enpassant uint8
-	mc        int
-	rounds    int
+	white         PlayerPieces
+	whitePieceMap map[int]string
+	black         PlayerPieces
+	blackPieceMap map[int]string
+	toMove        bool
+	wK            bool
+	wQ            bool
+	bK            bool
+	bQ            bool
+	enpassant     uint8
+	mc            int
+	rounds        int
 }
 
 func (c *Chessboard) Init() {
@@ -133,6 +134,9 @@ func (c *Chessboard) Init() {
 	c.bK = true
 	c.bQ = true
 	c.toMove = true
+
+	c.whitePieceMap = make(map[int]string)
+	c.blackPieceMap = make(map[int]string)
 
 	for y := 0; y < 2; y++ {
 		for x := 0; x < 8; x++ {
@@ -178,7 +182,12 @@ func (c *Chessboard) fen() string {
 		}
 		l := Location{}
 		l.fromByte(uint8(wp))
-		fen[l.toFen()] = strings.ToUpper(indexPieceMap[idx])[0]
+		if idx > 15 {
+			fen[l.toFen()] = strings.ToUpper(c.whitePieceMap[idx])[0]
+		} else {
+			fen[l.toFen()] = strings.ToUpper(indexPieceMap[idx])[0]
+		}
+
 	}
 	for idx, wp := range c.black {
 		if (wp>>7)&1 != 1 {
@@ -186,7 +195,11 @@ func (c *Chessboard) fen() string {
 		}
 		l := Location{}
 		l.fromByte(uint8(wp))
-		fen[l.toFen()] = indexPieceMap[idx][0]
+		if idx > 15 {
+			fen[l.toFen()] = (c.blackPieceMap[idx])[0]
+		} else {
+			fen[l.toFen()] = (indexPieceMap[idx])[0]
+		}
 	}
 	return string(fen)
 }
@@ -201,7 +214,7 @@ func (c *Chessboard) hasPieceInPosition(position uint8, enpassant bool) (bool, i
 	}
 	for idx, p := range c.white {
 		if position == uint8(p) {
-			return true, 1<<4 | idx
+			return true, 1<<5 | idx
 		}
 	}
 	for idx, p := range c.black {
@@ -215,15 +228,34 @@ func (c *Chessboard) hasPieceInPosition(position uint8, enpassant bool) (bool, i
 func (c *Chessboard) pieceAttacks(piece int, team bool, end_pos Location) bool {
 
 	start_pos := Location{}
-	piecei := pieceMap[indexPieceMap[int(piece)][0]]
+	piecei := 0
+
 	if team {
 		start_pos.fromByte(uint8(c.white[piece]))
-		piecei = pieceMap[indexPieceMap[int(piece)][0]]
+
+		if piece > 15 {
+			piecei = pieceMap[c.whitePieceMap[int(piece)][0]]
+		} else {
+			piecei = pieceMap[indexPieceMap[int(piece)][0]]
+		}
+
 	} else {
 		start_pos.fromByte(uint8(c.black[piece]))
-		if indexPieceMap[int(piece)][0] == 'p' {
-			piecei = pieceMap['P']
+
+		if piece > 15 {
+			p := c.blackPieceMap[int(piece)][0]
+			if p == 'p' {
+				p = 'P'
+			}
+			piecei = pieceMap[p]
+		} else {
+			p := indexPieceMap[int(piece)][0]
+			if p == 'p' {
+				p = 'P'
+			}
+			piecei = pieceMap[p]
 		}
+
 	}
 	ep := end_pos.toByte()
 	for moveLines := 0; moveLines < 8; moveLines++ {
@@ -235,7 +267,15 @@ func (c *Chessboard) pieceAttacks(piece int, team bool, end_pos Location) bool {
 			}
 			if (ep & 0b111111) == (value & 0b111111) {
 
-				return true
+				if piece > 7 && piece < 16 {
+					if moveLines > 0 {
+						return true
+					} else {
+						return false
+					}
+				} else {
+					return true
+				}
 
 			} else {
 				if c, _ := c.hasPieceInPosition((value&0b111111)|1<<7, false); c {
@@ -291,15 +331,34 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 
 	// Setup Vars
 	start_pos := Location{}
-	piecei := pieceMap[indexPieceMap[int(piece)][0]]
+	piecei := 0
+
 	if team {
 		start_pos.fromByte(uint8(c.white[piece]))
-		piecei = pieceMap[indexPieceMap[int(piece)][0]]
+
+		if piece > 15 {
+			piecei = pieceMap[c.whitePieceMap[int(piece)][0]]
+		} else {
+			piecei = pieceMap[indexPieceMap[int(piece)][0]]
+		}
+
 	} else {
 		start_pos.fromByte(uint8(c.black[piece]))
-		if indexPieceMap[int(piece)][0] == 'p' {
-			piecei = pieceMap['P']
+
+		if piece > 15 {
+			p := c.blackPieceMap[int(piece)][0]
+			if p == 'p' {
+				p = 'P'
+			}
+			piecei = pieceMap[p]
+		} else {
+			p := indexPieceMap[int(piece)][0]
+			if p == 'p' {
+				p = 'P'
+			}
+			piecei = pieceMap[p]
 		}
+
 	}
 
 	// Check if piece can move there and check if the path is blocked
@@ -460,7 +519,7 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 			}
 			if (ep & 0b111111) == (value & 0b111111) {
 
-				if piece > 7 {
+				if piece > 7 && piece < 16 {
 					if moveLines == 0 {
 						// En passant
 						if move == 1 {
@@ -504,7 +563,7 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 	// Check if piece can capture target (if there is a target)
 	target, target_p := c.hasPieceInPosition(ep, enpassant)
 	if target {
-		pieceTeam := target_p >> 4
+		pieceTeam := target_p >> 5
 		// Cannot capture your own pieces
 		if pieceTeam == 1 && team {
 			return false
@@ -531,21 +590,21 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 	oldwK := c.wK
 	if target {
 		if team {
-			if target_p&0xF == 0 {
+			if target_p&0x1F == 0 {
 				c.bQ = false
 			}
-			if target_p&0xF == 7 {
+			if target_p&0x1F == 7 {
 				c.bK = false
 			}
-			c.black[target_p&0xF] = 0
+			c.black[target_p&0x1F] = 0
 		} else {
-			if target_p&0xF == 0 {
+			if target_p&0x1F == 0 {
 				c.wQ = false
 			}
-			if target_p&0xF == 7 {
+			if target_p&0x1F == 7 {
 				c.wK = false
 			}
-			c.white[target_p&0xF] = 0
+			c.white[target_p&0x1F] = 0
 		}
 	}
 
@@ -592,16 +651,18 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location) bool {
 
 func (c *Chessboard) Duplicate() Chessboard {
 	return Chessboard{
-		white:     c.white,
-		black:     c.black,
-		toMove:    c.toMove,
-		wK:        c.wK,
-		wQ:        c.wQ,
-		bK:        c.bK,
-		bQ:        c.bQ,
-		enpassant: c.enpassant,
-		mc:        c.mc,
-		rounds:    c.rounds,
+		white:         c.white,
+		whitePieceMap: c.whitePieceMap,
+		black:         c.black,
+		blackPieceMap: c.blackPieceMap,
+		toMove:        c.toMove,
+		wK:            c.wK,
+		wQ:            c.wQ,
+		bK:            c.bK,
+		bQ:            c.bQ,
+		enpassant:     c.enpassant,
+		mc:            c.mc,
+		rounds:        c.rounds,
 	}
 }
 
@@ -633,7 +694,11 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 				continue
 			}
 			start_pos := Location{}
-			piecei := pieceMap[indexPieceMap[idx][0]]
+			real_idx := idx
+			if idx > 15 {
+				real_idx = pieceIndexMap[c.whitePieceMap[idx][0]][0]
+			}
+			piecei := pieceMap[indexPieceMap[real_idx][0]]
 			start_pos.fromByte(uint8(pos))
 
 			for moveLines := 0; moveLines < 8; moveLines++ {
@@ -734,6 +799,8 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 	board := Chessboard{}
 	board.Init()
+	board.whitePieceMap[16] = "q"
+	board.white[16] = Piece(pgnToByte("c6"))
 	m := 0
 	self := false
 	player := true
@@ -759,6 +826,9 @@ func echo(w http.ResponseWriter, r *http.Request) {
 				// player
 				if player {
 					for _, v := range pieceIndexMap[pieceRune] {
+						if v == 0 {
+							continue
+						}
 						if board.white[v] == Piece(pgnToByte(move[1])) {
 							found_piece = true
 							piece = v

@@ -90,6 +90,9 @@ func main() {
 						movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1], Move{s: Location{x: x - 1, y: y + dir}, attack: true})
 					}
 				}
+				if y == 6 {
+
+				}
 
 				movelib['p'] = append(movelib['p'], movements)
 			}

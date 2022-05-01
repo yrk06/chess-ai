@@ -7,6 +7,8 @@ import {converters} from 'fen-reader'
 const App = (props) =>{
   const [boardPos, setBoardPos] = useState("rnbqkbnr/pppppppp/11111111/11111111/11111111/11111111/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 
+  const [promoting, setPromoting] = useState(false)
+
 
   const side = getQueryVariable("s") ? getQueryVariable("s") : "white" 
 
@@ -15,7 +17,9 @@ const App = (props) =>{
 
   return (
     <div>
-      <Chessboard position={boardPos} orientation={side}
+      <Chessboard position={boardPos} sparePieces={true} /*orientation={side}*/
+      darkSquareStyle={{backgroundColor: "rgb(41, 41, 41)"}}
+      lightSquareStyle={{backgroundColor : "rgb(66, 245, 242)"}}
       onDrop={({sourceSquare, targetSquare, piece}) => {
         
 
