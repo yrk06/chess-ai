@@ -4,13 +4,16 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"math/rand"
+	"math"
 	"net/http"
 	"strings"
+	"time"
 	"yrk06/chess-backend/moveset"
 
 	"github.com/gorilla/websocket"
 )
+
+const BOT_MINIMAX_DEPTH = 40
 
 /*
 Offset	Piece
@@ -78,6 +81,7 @@ func pgnToByte(pgn string) uint8 {
 type PossibleMove struct {
 	piece   int
 	end_pos Location
+	c       Chessboard
 }
 
 type Piece uint8
@@ -869,7 +873,7 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 					}
 
 					// If move valid, append to list
-					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos})
+					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos, c: newBoard})
 
 				}
 			}
@@ -908,7 +912,7 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 						continue
 					}
 
-					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos})
+					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos, c: newBoard})
 
 				}
 			}
@@ -921,19 +925,19 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 /*
 	Evaluate board value
 */
-func (c *Chessboard) evaluate() int {
-	total := 0
+func (c *Chessboard) evaluate() float64 {
+	total := 0.0
 	for idx, loc := range c.white {
 		if loc == 0 {
 			continue
 		}
-		total += pieceValue[idx]
+		total += float64(pieceValue[idx])
 	}
 	for idx, loc := range c.black {
 		if loc == 0 {
 			continue
 		}
-		total -= pieceValue[idx]
+		total -= float64(pieceValue[idx])
 	}
 	return total
 }
@@ -946,9 +950,88 @@ func (c *Chessboard) evaluate() int {
 // 	return bestScore, bestPiece, bestLocation
 // }
 
-/*func (c *Chessboard) max(depth int) (int, Piece, Location) {
-	if depth == 0
-}*/
+func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool) (float64, PossibleMove) {
+	if depth == 0 {
+		return c.evaluate(), PossibleMove{}
+	}
+
+	// Check for stalemate
+	pcw := 0
+	pcb := 0
+
+	for _, p := range c.white {
+		if p != 0 {
+			pcw++
+		}
+	}
+
+	for _, p := range c.black {
+		if p != 0 {
+			pcb++
+		}
+	}
+	if pcw == pcb && pcw == 1 {
+		return 0, PossibleMove{}
+	}
+
+	if team {
+		maxEval := math.Inf(-1)
+		var maxEvalState PossibleMove
+		pm := c.possibleMoves(team)
+		if len(pm) == 0 {
+
+			if !c.verifyState(team) {
+				// White is checkmated
+				return float64(-1000 * (depth + 1)), PossibleMove{}
+			} else {
+				// White has no legal moves
+				return 0, PossibleMove{}
+			}
+		}
+
+		for _, state := range pm {
+			score, _ := state.c.minimax(depth-1, alfa, beta, !team)
+			if score > maxEval {
+				maxEval = score
+				maxEvalState = state
+			}
+			alfa = math.Max(alfa, score)
+			if beta <= alfa {
+				break
+			}
+		}
+
+		return maxEval, maxEvalState
+	} else {
+		minEval := math.Inf(+1)
+		var minEvalState PossibleMove
+		pm := c.possibleMoves(team)
+		if len(pm) == 0 {
+
+			if !c.verifyState(team) {
+				// black is checkmated
+				return float64(1000 * (depth + 1)), PossibleMove{}
+			} else {
+				// black has no legal moves
+				return 0, PossibleMove{}
+			}
+		}
+
+		for _, state := range pm {
+			score, _ := state.c.minimax(depth-1, alfa, beta, !team)
+			if score < minEval {
+				minEval = score
+				minEvalState = state
+			}
+			beta = math.Min(beta, score)
+			if beta <= alfa {
+				break
+			}
+		}
+
+		return minEval, minEvalState
+	}
+}
 
 var upgrader = websocket.Upgrader{} // use default options
 
@@ -967,8 +1050,17 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	board := Chessboard{}
 	board.Init()
 
-	// board.whitePieceMap[16] = "q"
-	// board.white[16] = Piece(pgnToByte("c6"))
+	/*for i := 0; i < 16; i++ {
+		board.white[i] = 0
+		board.black[i] = 0
+	}*/
+
+	/*board.black[10] = Piece(pgnToByte("c7"))
+	board.black[4] = Piece(pgnToByte("d7"))
+
+	board.white[0] = Piece(pgnToByte("g8"))
+	board.white[3] = Piece(pgnToByte("e4"))
+	board.white[4] = Piece(pgnToByte("f4"))*/
 
 	// Number of moves
 	m := 0
@@ -976,6 +1068,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	//Which team they are
 	self := false
 	player := true
+	var total_time time.Duration
 	for {
 
 		mt, message, err := c.ReadMessage()
@@ -1024,11 +1117,18 @@ func echo(w http.ResponseWriter, r *http.Request) {
 
 				// Bot
 				if valid {
-					pm := board.possibleMoves(self)
+					start := time.Now()
+					score, botmove := board.minimax(4, math.Inf(-1), math.Inf(+1), self)
+					log.Printf("Best Move with Score %f\n", score)
+					botvalid = board.MakeMove(uint8(botmove.piece), self, botmove.end_pos, 'q')
+					/*pm := board.possibleMoves(self)
 					if len(pm) != 0 {
 						pick := pm[rand.Intn(len(pm))]
 						botvalid = board.MakeMove(uint8(pick.piece), self, pick.end_pos, 'q')
-					}
+					}*/
+					d := time.Since(start)
+					log.Printf("Time: %s", d)
+					total_time += d
 				}
 
 			}
@@ -1041,15 +1141,23 @@ func echo(w http.ResponseWriter, r *http.Request) {
 
 			// If bot is white, make the first move
 			if self {
-				pm := board.possibleMoves(self)
+				start := time.Now()
+				score, botmove := board.minimax(4, math.Inf(-1), math.Inf(+1), self)
+				log.Printf("Best Move with Score %f\n", score)
+				botvalid = board.MakeMove(uint8(botmove.piece), self, botmove.end_pos, 'q')
+				/*pm := board.possibleMoves(self)
 				if len(pm) != 0 {
 					pick := pm[rand.Intn(len(pm))]
 					botvalid = board.MakeMove(uint8(pick.piece), self, pick.end_pos, 'q')
-				}
+				}*/
+				d := time.Since(start)
+				log.Printf("Time: %s", d)
+				total_time += d
 
 			}
 		}
 		m += 1
+		board.rounds = m
 		log.Printf("recv: %s", message)
 
 		// Test for checkmate or draw
@@ -1061,6 +1169,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 				} else {
 					err = c.WriteMessage(mt, []byte("Draw"))
 				}
+				log.Printf("Total Bot Time: %d", total_time)
 			}
 		} else {
 			if len(board.possibleMoves(self)) == 0 {
@@ -1069,6 +1178,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 				} else {
 					err = c.WriteMessage(mt, []byte("Draw"))
 				}
+				log.Printf("Total Bot Time: %d", total_time)
 
 			}
 		}
