@@ -19,11 +19,15 @@ const connectGame = (state) => {
     ws.onmessage = (data) => {
         const {setBoardPos} = state
         console.log(data.data)
+
         const board = converters.fen2json(data.data.split(" ")[0])
         //console.log(board)
         let newBoard = {}
         for(let key of Object.keys(board)){
             newBoard[key] = board[key].charAt(1) + String(board[key].charAt(0)).toUpperCase();
+        }
+        if (data.data === "Checkmate") {
+            alert("CHEQUE MATE")
         }
         setBoardPos(data.data)
         
