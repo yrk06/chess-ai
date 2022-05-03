@@ -817,23 +817,23 @@ func (c *Chessboard) Duplicate() Chessboard {
 
 // Value per piece
 var pieceValue = map[int]int{
-	0: 5,
-	1: 3,
-	2: 3,
-	3: 9,
-	4: 420,
-	5: 3,
-	6: 3,
-	7: 5,
+	0: 500,
+	1: 300,
+	2: 300,
+	3: 900,
+	4: 42000,
+	5: 300,
+	6: 300,
+	7: 500,
 
-	8:  1,
-	9:  1,
-	10: 1,
-	11: 1,
-	12: 1,
-	13: 1,
-	14: 1,
-	15: 1,
+	8:  100,
+	9:  100,
+	10: 100,
+	11: 100,
+	12: 100,
+	13: 100,
+	14: 100,
+	15: 100,
 }
 
 // Calculate all possible moves
@@ -922,33 +922,85 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 	return moves
 }
 
+var evaluationPieceOffset = map[int]int{
+	0:  64 * 3,
+	1:  64 * 1,
+	2:  64 * 2,
+	3:  64 * 4,
+	5:  64 * 2,
+	4:  64 * 5,
+	6:  64 * 1,
+	7:  64 * 3,
+	8:  0,
+	9:  0,
+	10: 0,
+	11: 0,
+	12: 0,
+	13: 0,
+	14: 0,
+	15: 0,
+}
+
 /*
 	Evaluate board value
 */
 func (c *Chessboard) evaluate() float64 {
 	total := 0.0
+	wpiece := 0
+	bpiece := 0
 	for idx, loc := range c.white {
 		if loc == 0 {
 			continue
 		}
+		wpiece += 1
 		total += float64(pieceValue[idx])
+		if idx == 4 {
+			continue
+		}
+		if idx > 15 {
+			rune := c.whitePieceMap[idx][0]
+			realidx := pieceIndexMap[rune][0]
+			total += moveset.Pst[evaluationPieceOffset[realidx]+int((loc>>3)&0b111)+8*int((loc&0b111))]
+		} else {
+			total += moveset.Pst[evaluationPieceOffset[idx]+int((loc>>3)&0b111)+8*int((loc&0b111))]
+		}
+
 	}
 	for idx, loc := range c.black {
 		if loc == 0 {
 			continue
 		}
+		bpiece += 1
 		total -= float64(pieceValue[idx])
+		if idx == 4 {
+			continue
+		}
+		if idx > 15 {
+			rune := c.blackPieceMap[idx][0]
+			realidx := pieceIndexMap[rune][0]
+			total += moveset.Pst[evaluationPieceOffset[realidx]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
+		} else {
+			total += moveset.Pst[evaluationPieceOffset[idx]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
+		}
+	}
+	if bpiece <= 8 || wpiece <= 8 {
+		if total < 0 {
+			loc := c.white[4]
+			total += moveset.Pst[evaluationPieceOffset[4]+int((loc>>3)&0b111)+8*int((loc&0b111))]
+
+			locb := c.black[4]
+			total -= math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * 500
+
+		} else {
+			loc := c.black[4]
+			total -= moveset.Pst[evaluationPieceOffset[4]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
+
+			locb := c.white[4]
+			total += math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * 500
+		}
 	}
 	return total
 }
-
-// func (c *Chessboard) bestMove(team bool, depth int) (int, Piece, Location) {
-// 	bestScore := 0
-// 	bestPiece := Piece(0)
-// 	bestLocation := Location{}
-
-// 	return bestScore, bestPiece, bestLocation
-// }
 
 func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool) (float64, PossibleMove) {
 	if depth == 0 {
@@ -982,7 +1034,7 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool) (
 
 			if !c.verifyState(team) {
 				// White is checkmated
-				return float64(-1000 * (depth + 1)), PossibleMove{}
+				return float64(-100000 * (depth + 1)), PossibleMove{}
 			} else {
 				// White has no legal moves
 				return 0, PossibleMove{}
@@ -1010,7 +1062,7 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool) (
 
 			if !c.verifyState(team) {
 				// black is checkmated
-				return float64(1000 * (depth + 1)), PossibleMove{}
+				return float64(100000 * (depth + 1)), PossibleMove{}
 			} else {
 				// black has no legal moves
 				return 0, PossibleMove{}
@@ -1053,14 +1105,18 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	/*for i := 0; i < 16; i++ {
 		board.white[i] = 0
 		board.black[i] = 0
-	}*/
+	}
 
-	/*board.black[10] = Piece(pgnToByte("c7"))
-	board.black[4] = Piece(pgnToByte("d7"))
+	board.bK = false
+	board.wK = false
+	board.bQ = false
+	board.wQ = false
 
-	board.white[0] = Piece(pgnToByte("g8"))
-	board.white[3] = Piece(pgnToByte("e4"))
-	board.white[4] = Piece(pgnToByte("f4"))*/
+	board.white[3] = Piece(pgnToByte("c7"))
+	//board.white[7] = Piece(pgnToByte("c8"))
+	board.white[4] = Piece(pgnToByte("d7"))
+
+	board.black[4] = Piece(pgnToByte("e4"))*/
 
 	// Number of moves
 	m := 0
@@ -1213,6 +1269,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 var addr = flag.String("addr", "localhost:8080", "http service address")
 
 func main() {
+
 	upgrader.CheckOrigin = func(r *http.Request) bool {
 		return true
 	}
