@@ -1147,9 +1147,6 @@ func echo(w http.ResponseWriter, r *http.Request) {
 				// player
 				if player {
 					for _, v := range pieceIndexMap[pieceRune] {
-						if v == 0 {
-							continue
-						}
 						if board.white[v] == Piece(pgnToByte(move[1])) {
 							found_piece = true
 							piece = v
