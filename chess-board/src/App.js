@@ -10,9 +10,10 @@ const App = (props) =>{
   const [promoting, setPromoting] = useState(false)
 
 
-  const side = getQueryVariable("s") ? getQueryVariable("s") : "white" 
+  const side = getQueryVariable("s") ? getQueryVariable("s") : "white"
+  const ai =  getQueryVariable("t") ? getQueryVariable("t") : "echo"
 
-  wsfunctions.connectGame({setBoardPos, s:side})
+  wsfunctions.connectGame({setBoardPos, s:side, t:ai})
 
 
   return (

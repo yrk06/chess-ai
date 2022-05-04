@@ -6,7 +6,7 @@ let wsclose = true;
 
 const connectGame = (state) => {
     if (ws == null || wsclose) {
-        ws = new WebSocket(`ws://localhost:8080/echo`)
+        ws = new WebSocket(`ws://localhost:8080/${state.t}`)
         
         wsclose = false
     }
