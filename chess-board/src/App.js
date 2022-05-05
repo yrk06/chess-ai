@@ -18,7 +18,7 @@ const App = (props) =>{
 
   return (
     <div>
-      <Chessboard position={boardPos} sparePieces={true} /*orientation={side}*/
+      <Chessboard position={boardPos} sparePieces={false} /*orientation={side}*/
       darkSquareStyle={{backgroundColor: "rgb(41, 41, 41)"}}
       lightSquareStyle={{backgroundColor : "rgb(66, 245, 242)"}}
       onDrop={({sourceSquare, targetSquare, piece}) => {

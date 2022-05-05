@@ -405,13 +405,21 @@ func main() {
 					movements.m = append(movements.m, make([]Move, 0))
 					movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
 						Move{s: Location{x: x + 1, y: y}, attack: true})
-
+					if x == 4 && y == 0 {
+						movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+							Move{s: Location{x: x + 2, y: y}, attack: true})
+					}
 				}
 
 				if x > 0 {
 					movements.m = append(movements.m, make([]Move, 0))
 					movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
 						Move{s: Location{x: x - 1, y: y}, attack: true})
+
+					if x == 4 && y == 0 {
+						movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+							Move{s: Location{x: x - 2, y: y}, attack: true})
+					}
 				}
 
 				if y < 7 {
@@ -455,6 +463,78 @@ func main() {
 		}
 	}
 
+	// BLACK KING
+	{
+		movelib['K'] = make([]MovesFromPos, 0)
+
+		for x := 0; x < 8; x++ {
+			for y := 0; y < 8; y++ {
+				movements := MovesFromPos{}
+				movements.s.x = x
+				movements.s.y = y
+
+				if x < 7 {
+					movements.m = append(movements.m, make([]Move, 0))
+					movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+						Move{s: Location{x: x + 1, y: y}, attack: true})
+					if x == 4 && y == 7 {
+						movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+							Move{s: Location{x: x + 2, y: y}, attack: true})
+					}
+				}
+
+				if x > 0 {
+					movements.m = append(movements.m, make([]Move, 0))
+					movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+						Move{s: Location{x: x - 1, y: y}, attack: true})
+
+					if x == 4 && y == 7 {
+						movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+							Move{s: Location{x: x - 2, y: y}, attack: true})
+					}
+				}
+
+				if y < 7 {
+					movements.m = append(movements.m, make([]Move, 0))
+					movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+						Move{s: Location{x: x, y: y + 1}, attack: true})
+				}
+
+				if y > 0 {
+					movements.m = append(movements.m, make([]Move, 0))
+					movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+						Move{s: Location{x: x, y: y - 1}, attack: true})
+				}
+
+				if x < 7 && y < 7 {
+					movements.m = append(movements.m, make([]Move, 0))
+					movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+						Move{s: Location{x: x + 1, y: y + 1}, attack: true})
+				}
+
+				if x > 0 && y > 0 {
+					movements.m = append(movements.m, make([]Move, 0))
+					movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+						Move{s: Location{x: x - 1, y: y - 1}, attack: true})
+				}
+
+				if x > 0 && y < 7 {
+					movements.m = append(movements.m, make([]Move, 0))
+					movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+						Move{s: Location{x: x - 1, y: y + 1}, attack: true})
+				}
+
+				if x < 7 && y > 0 {
+					movements.m = append(movements.m, make([]Move, 0))
+					movements.m[len(movements.m)-1] = append(movements.m[len(movements.m)-1],
+						Move{s: Location{x: x + 1, y: y - 1}, attack: true})
+				}
+
+				movelib['K'] = append(movelib['K'], movements)
+			}
+		}
+	}
+
 	/*
 		Offset	Piece
 		0		PAWN
@@ -464,6 +544,7 @@ func main() {
 		14336	BISHOP
 		17920	QUEEN
 		21504	KING
+		25088	BLACK KING
 
 		MoveOffset:
 		0	a1
@@ -503,8 +584,10 @@ func main() {
 	exportPiece(movelib['b'], moveset)
 	moveset.WriteString("//Queen\n\t")
 	exportPiece(movelib['q'], moveset)
-	moveset.WriteString("//Knight\n\t")
+	moveset.WriteString("//King\n\t")
 	exportPiece(movelib['k'], moveset)
+	moveset.WriteString("//Black King\n\t")
+	exportPiece(movelib['K'], moveset)
 	moveset.Write([]byte("\n}"))
 	/*for key, value := range movelib {
 		moveset.Write([]byte("#"))
