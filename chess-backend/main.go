@@ -1003,14 +1003,14 @@ func (c *Chessboard) evaluate() float64 {
 			total += moveset.Pst[evaluationPieceOffset[4]+int((loc>>3)&0b111)+8*int((loc&0b111))]
 
 			locb := c.black[4]
-			total -= math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * 250
+			total -= math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * 320
 
 		} else {
 			loc := c.black[4]
 			total -= moveset.Pst[evaluationPieceOffset[4]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
 
 			locb := c.white[4]
-			total += math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * 250
+			total += math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * 320
 		}
 	}
 	return total
@@ -1214,6 +1214,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 
 					if valid {
 
+						c.WriteMessage(mt, []byte(board.fen()))
 						pgn_piece := string(indexPieceMap[piece])
 
 						if piece > 15 {
@@ -1389,6 +1390,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 		}
 
 		err = c.WriteMessage(mt, []byte(board.fen()))
+		c.WriteMessage(mt, []byte(fmt.Sprintf("eval %.5f", board.evaluate())))
 		if err != nil {
 			log.Println("write:", err)
 			break
@@ -1564,6 +1566,7 @@ func ai(w http.ResponseWriter, r *http.Request) {
 		}
 
 		err = c.WriteMessage(mt, []byte(board.fen()))
+		c.WriteMessage(mt, []byte(fmt.Sprintf("eval %.5f", board.evaluate())))
 		if err != nil {
 			log.Println("write:", err)
 			break
@@ -1582,25 +1585,6 @@ func main() {
 	upgrader.CheckOrigin = func(r *http.Request) bool {
 		return true
 	}
-
-	b := Chessboard{}
-	b.Init()
-
-	start := time.Now()
-	log.Println(b.calculateAllMovements(1))
-	log.Println(time.Since(start))
-
-	start = time.Now()
-	log.Println(b.calculateAllMovements(2))
-	log.Println(time.Since(start))
-
-	start = time.Now()
-	log.Println(b.calculateAllMovements(3))
-	log.Println(time.Since(start))
-
-	start = time.Now()
-	log.Println(b.calculateAllMovements(4))
-	log.Println(time.Since(start))
 
 	flag.Parse()
 	log.SetFlags(0)
