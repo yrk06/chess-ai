@@ -17,19 +17,32 @@ const connectGame = (state) => {
         wsclose = true
     }
     ws.onmessage = (data) => {
-        const {setBoardPos} = state
+        const {setBoardPos, setEval} = state
         console.log(data.data)
 
-        const board = converters.fen2json(data.data.split(" ")[0])
-        //console.log(board)
-        let newBoard = {}
-        for(let key of Object.keys(board)){
-            newBoard[key] = board[key].charAt(1) + String(board[key].charAt(0)).toUpperCase();
+        if (data.data.startsWith("eval")) {
+            const limite = 5000
+            const value = Math.max(Math.min(parseFloat(data.data.split(" ")[1]), limite),-limite)
+
+            console.log(value)
+
+            console.log( ( (value/limite)/2.0 + 0.5 ) * 100.0 );
+            setEval( ( (value/limite)/2.0 + 0.5 ) * 100.0 )
+
+        } else {
+            const board = converters.fen2json(data.data.split(" ")[0])
+            //console.log(board)
+            let newBoard = {}
+            for(let key of Object.keys(board)){
+                newBoard[key] = board[key].charAt(1) + String(board[key].charAt(0)).toUpperCase();
+            }
+            if (data.data === "Checkmate") {
+                alert("CHEQUE MATE")
+            }
+            setBoardPos(data.data)
         }
-        if (data.data === "Checkmate") {
-            alert("CHEQUE MATE")
-        }
-        setBoardPos(data.data)
+
+        
         
     }
     
