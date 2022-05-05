@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 	"yrk06/chess-backend/moveset"
@@ -17,7 +18,7 @@ import (
 const BOT_MINIMAX_DEPTH = 4
 const BOT_RANDOM_CHANCE = 1000
 const BOT_POINT_RANDOM_THRESHOLD = 200
-const AI_GAME_DELAY = 1000000000 * 0.1
+const AI_GAME_DELAY = 1000000000 * 0.0
 
 /*
 Offset	Piece
@@ -85,7 +86,6 @@ func pgnToByte(pgn string) uint8 {
 type PossibleMove struct {
 	piece   int
 	end_pos Location
-	c       Chessboard
 }
 
 type Piece uint8
@@ -828,6 +828,35 @@ func (c *Chessboard) Duplicate() Chessboard {
 	return board
 }
 
+func (c *Chessboard) SaveState(target *Chessboard) {
+
+	target.white = c.white
+	target.black = c.black
+	target.toMove = c.toMove
+	target.wK = c.wK
+	target.wQ = c.wQ
+	target.bK = c.bK
+	target.bQ = c.bQ
+	target.enpassant = c.enpassant
+	target.mc = c.mc
+	target.rounds = c.rounds
+
+	target.blackPieceMap = make(map[int]string, 8)
+	for k, v := range c.blackPieceMap {
+		target.blackPieceMap[k] = v
+	}
+
+	target.whitePieceMap = make(map[int]string, 8)
+	for k, v := range c.whitePieceMap {
+		target.whitePieceMap[k] = v
+	}
+
+	target.plays = make(map[string]int)
+	for k, v := range c.plays {
+		target.plays[k] = v
+	}
+}
+
 // Value per piece
 var pieceValue = map[int]int{
 	0: 500,
@@ -853,6 +882,7 @@ var pieceValue = map[int]int{
 func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 	moves := make([]PossibleMove, 0)
 
+	var board Chessboard
 	// White {} black pieces
 	if team {
 		for idx, pos := range c.white {
@@ -880,14 +910,15 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 
 					end_pos := Location{}
 					end_pos.fromByte(value)
-					newBoard := c.Duplicate()
+					//newBoard := c.Duplicate()
+					c.SaveState(&board)
 
-					if co, _ := newBoard.MakeMove(uint8(idx), team, end_pos, 'q'); !co {
+					if co, _ := board.MakeMove(uint8(idx), team, end_pos, 'q'); !co {
 						continue
 					}
 
 					// If move valid, append to list
-					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos, c: newBoard})
+					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos})
 
 				}
 			}
@@ -921,12 +952,13 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 
 					end_pos := Location{}
 					end_pos.fromByte(value)
-					newBoard := c.Duplicate()
-					if co, _ := newBoard.MakeMove(uint8(idx), team, end_pos, 'q'); !co {
+					//newBoard := c.Duplicate()
+					c.SaveState(&board)
+					if co, _ := board.MakeMove(uint8(idx), team, end_pos, 'q'); !co {
 						continue
 					}
 
-					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos, c: newBoard})
+					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos})
 
 				}
 			}
@@ -941,8 +973,8 @@ var evaluationPieceOffset = map[int]int{
 	1:  64 * 1,
 	2:  64 * 2,
 	3:  64 * 4,
-	5:  64 * 2,
 	4:  64 * 5,
+	5:  64 * 2,
 	6:  64 * 1,
 	7:  64 * 3,
 	8:  0,
@@ -997,20 +1029,20 @@ func (c *Chessboard) evaluate() float64 {
 			total += moveset.Pst[evaluationPieceOffset[idx]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
 		}
 	}
-	if bpiece <= 6 || wpiece <= 6 {
+	if bpiece <= 5 || wpiece <= 5 {
 		if total < 0 {
 			loc := c.white[4]
 			total += moveset.Pst[evaluationPieceOffset[4]+int((loc>>3)&0b111)+8*int((loc&0b111))]
 
 			locb := c.black[4]
-			total -= math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * 320
+			total -= math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * math.Min(5-float64(wpiece), 0) * 80
 
 		} else {
 			loc := c.black[4]
 			total -= moveset.Pst[evaluationPieceOffset[4]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
 
 			locb := c.white[4]
-			total += math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * 320
+			total += math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * math.Min(5-float64(bpiece), 0) * 80
 		}
 	}
 	return total
@@ -1049,6 +1081,7 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, n
 
 	}
 
+	var board Chessboard
 	if team {
 		maxEval := math.Inf(-1)
 		var maxEvalState PossibleMove
@@ -1066,7 +1099,9 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, n
 
 		for _, state := range pm {
 			*num_states += 1
-			score, _ := state.c.minimax(depth-1, alfa, beta, !team, num_states)
+			c.SaveState(&board)
+			board.MakeMove(uint8(state.piece), team, state.end_pos, 'q')
+			score, _ := board.minimax(depth-1, alfa, beta, !team, num_states)
 			if score > maxEval {
 				maxEval = score
 				maxEvalState = state
@@ -1098,7 +1133,10 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, n
 		}
 
 		for _, state := range pm {
-			score, _ := state.c.minimax(depth-1, alfa, beta, !team, num_states)
+			*num_states += 1
+			c.SaveState(&board)
+			board.MakeMove(uint8(state.piece), team, state.end_pos, 'q')
+			score, _ := board.minimax(depth-1, alfa, beta, !team, num_states)
 			if score < minEval {
 				minEval = score
 				minEvalState = state
@@ -1116,29 +1154,23 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, n
 	}
 }
 
-func (c *Chessboard) calculateAllMovements(depth int) int {
-	pm1 := c.possibleMoves(true)
-	pm2 := make([]PossibleMove, 0)
+func (c *Chessboard) calculateAllMovements(depth int, layer bool) int {
+	pm1 := c.possibleMoves(layer)
 
-	layer := true
-	total := len(pm1)
-
-	for i := 1; i < depth; i++ {
+	var Board Chessboard
+	if depth > 1 {
+		total := 0
 		for _, p := range pm1 {
-			pm2 = append(pm2, p.c.possibleMoves(!layer)...)
+			c.SaveState(&Board)
+			Board.MakeMove(uint8(p.piece), layer, p.end_pos, 'q')
+			total += Board.calculateAllMovements(depth-1, !layer)
 		}
-
-		if i == depth-1 {
-			total = len(pm2)
-		}
-
-		pm1 = make([]PossibleMove, len(pm2))
-		copy(pm1, pm2)
-		pm2 = make([]PossibleMove, 0)
-		layer = !layer
-
+		return total
+	} else {
+		total := len(pm1)
+		return total
 	}
-	return total
+
 }
 
 var upgrader = websocket.Upgrader{} // use default options
@@ -1476,9 +1508,6 @@ func ai(w http.ResponseWriter, r *http.Request) {
 				//log.Printf("Best Move with Score %f\n", score)
 				rank := string(((board.black[botmove.piece] >> 3) & 0b111) + 97)
 				capture := false
-				if m == 20 {
-					log.Print()
-				}
 				botvalid, capture = board.MakeMove(uint8(botmove.piece), self, botmove.end_pos, 'q')
 				if botvalid {
 
@@ -1578,7 +1607,7 @@ func ai(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var addr = flag.String("addr", "localhost:8080", "http service address")
+var addr = flag.String("addr", ":"+os.Getenv("PORT"), "http service address")
 
 func main() {
 
@@ -1587,8 +1616,11 @@ func main() {
 	}
 
 	flag.Parse()
-	log.SetFlags(0)
+	//log.SetFlags(0)
+
+	log.Printf("Server starting at %s", *addr)
 	http.HandleFunc("/echo", echo)
 	http.HandleFunc("/ai", ai)
+	http.Handle("/", http.FileServer(http.Dir("./static/")))
 	http.ListenAndServe(*addr, nil)
 }

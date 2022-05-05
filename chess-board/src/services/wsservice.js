@@ -4,9 +4,11 @@ let ws;
 
 let wsclose = true;
 
+let gameover = false;
+
 const connectGame = (state) => {
-    if (ws == null || wsclose) {
-        ws = new WebSocket(`ws://localhost:8080/${state.t}`)
+    if ( (ws == null || wsclose) && !gameover) {
+        ws = new WebSocket(`${window.location.protocol === "https:" ? 'wss': 'ws'}://${window.location.host}/${state.t}`)
         
         wsclose = false
     }
@@ -21,7 +23,7 @@ const connectGame = (state) => {
         console.log(data.data)
 
         if (data.data.startsWith("eval")) {
-            const limite = 5000
+            const limite = 2000
             const value = Math.max(Math.min(parseFloat(data.data.split(" ")[1]), limite),-limite)
 
             console.log(value)
@@ -37,7 +39,7 @@ const connectGame = (state) => {
                 newBoard[key] = board[key].charAt(1) + String(board[key].charAt(0)).toUpperCase();
             }
             if (data.data === "Checkmate") {
-                alert("CHEQUE MATE")
+                gameover = true
             }
             setBoardPos(data.data)
         }
