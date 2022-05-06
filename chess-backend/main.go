@@ -1035,14 +1035,14 @@ func (c *Chessboard) evaluate() float64 {
 			total += moveset.Pst[evaluationPieceOffset[4]+int((loc>>3)&0b111)+8*int((loc&0b111))]
 
 			locb := c.black[4]
-			total -= math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * math.Min(5-float64(wpiece), 0) * 80
+			total -= math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * math.Min(5-float64(wpiece), 0) * 85
 
 		} else {
 			loc := c.black[4]
 			total -= moveset.Pst[evaluationPieceOffset[4]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
 
 			locb := c.white[4]
-			total += math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * math.Min(5-float64(bpiece), 0) * 80
+			total += math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * math.Min(5-float64(bpiece), 0) * 85
 		}
 	}
 	return total
@@ -1189,6 +1189,21 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	//Create chessboard
 	board := Chessboard{}
 	board.Init()
+
+	for i := 0; i < 16; i++ {
+		board.white[i] = 0
+		board.black[i] = 0
+	}
+
+	board.bK = false
+	board.wQ = false
+	board.bQ = false
+	board.wK = false
+
+	board.white[4] = Piece(pgnToByte("e1"))
+	board.black[4] = Piece(pgnToByte("h4"))
+	board.black[3] = Piece(pgnToByte("h3"))
+	board.black[8] = Piece(pgnToByte("b7"))
 
 	// Number of moves
 	m := 0
@@ -1617,6 +1632,13 @@ func main() {
 
 	flag.Parse()
 	//log.SetFlags(0)
+
+	b := Chessboard{}
+	b.Init()
+
+	start := time.Now()
+	log.Println(b.calculateAllMovements(4, true))
+	log.Println(time.Since(start))
 
 	log.Printf("Server starting at %s", *addr)
 	http.HandleFunc("/echo", echo)

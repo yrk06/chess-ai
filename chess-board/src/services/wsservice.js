@@ -8,7 +8,7 @@ let gameover = false;
 
 const connectGame = (state) => {
     if ( (ws == null || wsclose) && !gameover) {
-        ws = new WebSocket(`${window.location.protocol === "https:" ? 'wss': 'ws'}://${window.location.host}/${state.t}`)
+        ws = new WebSocket(`${window.location.protocol === "https:" ? 'wss': 'ws'}://localhost:8080/${state.t}`)
         
         wsclose = false
     }
