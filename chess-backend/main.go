@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"runtime/pprof"
 	"strings"
 	"time"
 	"yrk06/chess-backend/moveset"
@@ -15,9 +16,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const BOT_MINIMAX_DEPTH = 4
-const BOT_RANDOM_CHANCE = 1000
-const BOT_POINT_RANDOM_THRESHOLD = 200
+var BOT_MINIMAX_DEPTH = 6
+
+const BOT_RANDOM_CHANCE = 10
+const BOT_POINT_RANDOM_THRESHOLD = 10
 const AI_GAME_DELAY = 1000000000 * 0.0
 
 /*
@@ -84,8 +86,20 @@ func pgnToByte(pgn string) uint8 {
 }
 
 type PossibleMove struct {
-	piece   int
-	end_pos Location
+	score      float64
+	piece      int
+	spiece     int
+	send_pos   Location
+	end_pos    Location
+	enpassant  uint8
+	target     uint8
+	wK         bool
+	wQ         bool
+	bK         bool
+	bQ         bool
+	promote    bool
+	promote_to byte
+	invalid    bool
 }
 
 type Piece uint8
@@ -160,8 +174,8 @@ func (c *Chessboard) Init() {
 	c.toMove = true
 
 	// Create the aditional piece data
-	c.whitePieceMap = make(map[int]string)
-	c.blackPieceMap = make(map[int]string)
+	c.whitePieceMap = make(map[int]string, 8)
+	c.blackPieceMap = make(map[int]string, 8)
 
 	c.plays = make(map[string]int)
 
@@ -181,6 +195,12 @@ func (c *Chessboard) Init() {
 		}
 	}
 
+}
+
+func (c *Chessboard) init() {
+	c.blackPieceMap = make(map[int]string, 8)
+	c.whitePieceMap = make(map[int]string, 8)
+	c.plays = make(map[string]int)
 }
 
 //rnbqkbnr/pppppppp/11111111/11111111/11111111/11111111/PPPPPPPP/RNBQKBNR w KQkq - 0 1
@@ -409,7 +429,7 @@ func (c *Chessboard) verifyState(team bool) bool {
 /*
 	Attemps to move a piece and returns TRUE if move is valid
 */
-func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_to byte) (bool, bool) {
+func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_to byte) (bool, uint8) {
 
 	// Setup Vars
 	start_pos := Location{}
@@ -459,22 +479,22 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_
 				if end_pos == (Location{x: 6, y: 0}) {
 
 					if c.isSquareAttacked(!team, start_pos) {
-						return false, false
+						return false, 0
 					}
 					sq1 := Location{x: 5, y: 0}
 					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
-						return false, false
+						return false, 0
 					}
 					if c.isSquareAttacked(!team, sq1) {
-						return false, false
+						return false, 0
 					}
 
 					sq2 := Location{x: 6, y: 0}
 					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
-						return false, false
+						return false, 0
 					}
 					if c.isSquareAttacked(!team, sq2) {
-						return false, false
+						return false, 0
 					}
 
 					c.white[4] = Piece(end_pos.toByte())
@@ -489,27 +509,27 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_
 				if end_pos == (Location{x: 2, y: 0}) {
 
 					if c.isSquareAttacked(!team, start_pos) {
-						return false, false
+						return false, 0
 					}
 					sq1 := Location{x: 1, y: 0}
 					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
-						return false, false
+						return false, 0
 					}
 
 					sq2 := Location{x: 2, y: 0}
 					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
-						return false, false
+						return false, 0
 					}
 					if c.isSquareAttacked(!team, sq2) {
-						return false, false
+						return false, 0
 					}
 
 					sq3 := Location{x: 3, y: 0}
 					if c, _ := c.hasPieceInPosition(sq3.toByte(), false); c {
-						return false, false
+						return false, 0
 					}
 					if c.isSquareAttacked(!team, sq3) {
-						return false, false
+						return false, 0
 					}
 
 					c.white[4] = Piece(end_pos.toByte())
@@ -526,22 +546,22 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_
 				if end_pos == (Location{x: 6, y: 7}) {
 
 					if c.isSquareAttacked(!team, start_pos) {
-						return false, false
+						return false, 0
 					}
 					sq1 := Location{x: 5, y: 7}
 					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
-						return false, false
+						return false, 0
 					}
 					if c.isSquareAttacked(!team, sq1) {
-						return false, false
+						return false, 0
 					}
 
 					sq2 := Location{x: 6, y: 7}
 					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
-						return false, false
+						return false, 0
 					}
 					if c.isSquareAttacked(!team, sq2) {
-						return false, false
+						return false, 0
 					}
 
 					c.black[4] = Piece(end_pos.toByte())
@@ -556,27 +576,27 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_
 				if end_pos == (Location{x: 2, y: 7}) {
 
 					if c.isSquareAttacked(!team, start_pos) {
-						return false, false
+						return false, 0
 					}
 					sq1 := Location{x: 1, y: 7}
 					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
-						return false, false
+						return false, 0
 					}
 
 					sq2 := Location{x: 2, y: 7}
 					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
-						return false, false
+						return false, 0
 					}
 					if c.isSquareAttacked(!team, sq2) {
-						return false, false
+						return false, 0
 					}
 
 					sq3 := Location{x: 3, y: 7}
 					if c, _ := c.hasPieceInPosition(sq3.toByte(), false); c {
-						return false, false
+						return false, 0
 					}
 					if c.isSquareAttacked(!team, sq3) {
-						return false, false
+						return false, 0
 					}
 
 					c.black[4] = Piece(end_pos.toByte())
@@ -591,7 +611,7 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_
 	}
 	if castling {
 		c.toMove = !c.toMove
-		return true, false
+		return true, 0
 	}
 
 	// Check if piece can move there
@@ -659,7 +679,7 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_
 	}
 
 	if !valid {
-		return false, false
+		return false, 0
 	}
 
 	// Check if piece can capture target (if there is a target)
@@ -668,13 +688,13 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_
 		pieceTeam := target_p >> 5
 		// Cannot capture your own pieces
 		if pieceTeam == 1 && team {
-			return false, false
+			return false, 0
 		}
 		if pieceTeam == 0 && !team {
-			return false, false
+			return false, 0
 		}
 		if !canAttack {
-			return false, false
+			return false, 0
 		}
 
 	}
@@ -776,7 +796,7 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_
 			}
 
 		}
-		return false, false
+		return false, 0
 	}
 
 	// Remove checking rights
@@ -791,7 +811,455 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_
 	}
 
 	c.toMove = !c.toMove
-	return true, target
+	return true, uint8(target_p | 1<<5)
+}
+
+func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_to byte) (bool, PossibleMove) {
+
+	// Setup Vars
+	start_pos := Location{}
+	piecei := 0
+
+	if team {
+		start_pos.fromByte(uint8(c.white[piece]))
+
+		if piece > 15 {
+			piecei = pieceMap[c.whitePieceMap[int(piece)][0]]
+		} else {
+			piecei = pieceMap[indexPieceMap[int(piece)][0]]
+		}
+
+	} else {
+		start_pos.fromByte(uint8(c.black[piece]))
+
+		if piece > 15 {
+			p := c.blackPieceMap[int(piece)][0]
+			piecei = pieceMap[p]
+		} else {
+			p := indexPieceMap[int(piece)][0]
+			if p == 'p' {
+				p = 'P'
+			}
+			if p == 'k' {
+				p = 'K'
+			}
+			piecei = pieceMap[p]
+		}
+
+	}
+
+	// Control variables
+	valid := false
+	enpassant := false
+	enpassant_active := false
+	canAttack := true
+	promotion := false
+	promotion_idx := 0
+
+	// Check for castling
+	castling := false
+	cq := false
+	cep := Location{}
+	if piece == 4 {
+		if team {
+			if c.wK {
+				if end_pos == (Location{x: 6, y: 0}) {
+
+					if c.isSquareAttacked(!team, start_pos) {
+						return false, PossibleMove{invalid: true}
+					}
+					sq1 := Location{x: 5, y: 0}
+					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
+						return false, PossibleMove{invalid: true}
+					}
+					if c.isSquareAttacked(!team, sq1) {
+						return false, PossibleMove{invalid: true}
+					}
+
+					sq2 := Location{x: 6, y: 0}
+					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
+						return false, PossibleMove{invalid: true}
+					}
+					if c.isSquareAttacked(!team, sq2) {
+						return false, PossibleMove{invalid: true}
+					}
+
+					c.white[4] = Piece(end_pos.toByte())
+					c.white[7] = Piece(sq1.toByte())
+					cep = sq1
+					castling = true
+					c.wK = false
+					c.wQ = false
+
+				}
+			}
+			if c.wQ {
+				if end_pos == (Location{x: 2, y: 0}) {
+
+					if c.isSquareAttacked(!team, start_pos) {
+						return false, PossibleMove{invalid: true}
+					}
+					sq1 := Location{x: 1, y: 0}
+					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
+						return false, PossibleMove{invalid: true}
+					}
+
+					sq2 := Location{x: 2, y: 0}
+					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
+						return false, PossibleMove{invalid: true}
+					}
+					if c.isSquareAttacked(!team, sq2) {
+						return false, PossibleMove{invalid: true}
+					}
+
+					sq3 := Location{x: 3, y: 0}
+					if c, _ := c.hasPieceInPosition(sq3.toByte(), false); c {
+						return false, PossibleMove{invalid: true}
+					}
+					if c.isSquareAttacked(!team, sq3) {
+						return false, PossibleMove{invalid: true}
+					}
+
+					c.white[4] = Piece(end_pos.toByte())
+					c.white[0] = Piece(sq3.toByte())
+					cep = sq3
+					castling = true
+					c.wK = false
+					c.wQ = false
+					cq = true
+
+				}
+			}
+
+		} else {
+			if c.bK {
+				if end_pos == (Location{x: 6, y: 7}) {
+
+					if c.isSquareAttacked(!team, start_pos) {
+						return false, PossibleMove{invalid: true}
+					}
+					sq1 := Location{x: 5, y: 7}
+					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
+						return false, PossibleMove{invalid: true}
+					}
+					if c.isSquareAttacked(!team, sq1) {
+						return false, PossibleMove{invalid: true}
+					}
+
+					sq2 := Location{x: 6, y: 7}
+					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
+						return false, PossibleMove{invalid: true}
+					}
+					if c.isSquareAttacked(!team, sq2) {
+						return false, PossibleMove{invalid: true}
+					}
+
+					c.black[4] = Piece(end_pos.toByte())
+					c.black[7] = Piece(sq1.toByte())
+					cep = sq1
+					castling = true
+					c.bK = false
+					c.bQ = false
+				}
+			}
+			if c.bQ {
+				if end_pos == (Location{x: 2, y: 7}) {
+
+					if c.isSquareAttacked(!team, start_pos) {
+						return false, PossibleMove{invalid: true}
+					}
+					sq1 := Location{x: 1, y: 7}
+					if c, _ := c.hasPieceInPosition(sq1.toByte(), false); c {
+						return false, PossibleMove{invalid: true}
+					}
+
+					sq2 := Location{x: 2, y: 7}
+					if c, _ := c.hasPieceInPosition(sq2.toByte(), false); c {
+						return false, PossibleMove{invalid: true}
+					}
+					if c.isSquareAttacked(!team, sq2) {
+						return false, PossibleMove{invalid: true}
+					}
+
+					sq3 := Location{x: 3, y: 7}
+					if c, _ := c.hasPieceInPosition(sq3.toByte(), false); c {
+						return false, PossibleMove{invalid: true}
+					}
+					if c.isSquareAttacked(!team, sq3) {
+						return false, PossibleMove{invalid: true}
+					}
+
+					c.black[4] = Piece(end_pos.toByte())
+					c.black[0] = Piece(sq3.toByte())
+					cep = sq3
+					castling = true
+					c.bK = false
+					c.bQ = false
+					cq = true
+				}
+			}
+		}
+	}
+	if castling {
+		c.toMove = !c.toMove
+		tower := 0
+		if cq {
+			tower = 7
+		}
+		return true, PossibleMove{piece: int(piece), end_pos: end_pos, spiece: tower, send_pos: cep, wK: c.wK, wQ: c.wQ, bK: c.bK, bQ: c.bQ}
+	}
+
+	// Check if piece can move there
+	ep := end_pos.toByte()
+	for moveLines := 0; moveLines < 8; moveLines++ {
+		for move := 0; move < 7; move++ {
+			value := moveset.Mset[piecei+56*start_pos.y+56*8*start_pos.x+moveLines*7+move]
+
+			if value == 0 {
+				break
+			}
+
+			// if position is valid
+			if (ep & 0b111111) == (value & 0b111111) {
+
+				// Special Pawn rules
+				if piece > 7 && piece < 16 {
+
+					if moveLines == 0 {
+
+						// check if doing En passant
+						if move == 1 {
+							l := Location{}
+							l.fromByte(moveset.Mset[piecei+56*start_pos.y+56*8*start_pos.x+moveLines*7])
+							c.enpassant = l.toByte()
+							enpassant_active = true
+						}
+						canAttack = false
+						valid = true
+					} else {
+
+						// Take en passant into account
+						if co, _ := c.hasPieceInPosition((value&0b111111)|1<<7, true); co {
+							valid = true
+							if c.enpassant != 0 {
+								enpassant = true
+							}
+
+						}
+					}
+
+					if end_pos.y == 7 && team {
+						promotion = true
+
+					}
+
+					if end_pos.y == 0 && !team {
+						promotion = true
+
+					}
+				} else {
+					valid = true
+				}
+
+			} else {
+				if c, _ := c.hasPieceInPosition((value&0b111111)|1<<7, false); c {
+					break
+				}
+			}
+
+		}
+		if valid {
+			break
+		}
+	}
+
+	if !valid {
+		return false, PossibleMove{invalid: true}
+	}
+
+	// Check if piece can capture target (if there is a target)
+	target, target_p := c.hasPieceInPosition(ep, enpassant)
+	if target {
+		pieceTeam := target_p >> 5
+		// Cannot capture your own pieces
+		if pieceTeam == 1 && team {
+			return false, PossibleMove{invalid: true}
+		}
+		if pieceTeam == 0 && !team {
+			return false, PossibleMove{invalid: true}
+		}
+		if !canAttack {
+			return false, PossibleMove{invalid: true}
+		}
+
+	}
+
+	// Make the Move and check if king is in check
+	if team {
+		c.white[piece] = Piece(ep)
+	} else {
+		c.black[piece] = Piece(ep)
+	}
+	oldbQ := c.bQ
+	oldbK := c.bK
+
+	oldwQ := c.wQ
+	oldwK := c.wK
+
+	// Capture piece
+	if target {
+		if team {
+			if target_p&0x1F == 0 {
+				c.bQ = false
+			}
+			if target_p&0x1F == 7 {
+				c.bK = false
+			}
+			c.black[target_p&0x1F] = 0
+		} else {
+			if target_p&0x1F == 0 {
+				c.wQ = false
+			}
+			if target_p&0x1F == 7 {
+				c.wK = false
+			}
+			c.white[target_p&0x1F] = 0
+		}
+	}
+
+	if !enpassant_active {
+		c.enpassant = 0
+	}
+
+	if promotion {
+		if team {
+			for i := 16; i < 24; i++ {
+				if c.white[i] == 0 {
+					c.whitePieceMap[i] = string(promote_to)
+					c.white[i] = c.white[piece]
+					c.white[piece] = 0
+					promotion_idx = i
+					break
+				}
+			}
+		} else {
+			for i := 16; i < 24; i++ {
+				if c.black[i] == 0 {
+					c.blackPieceMap[i] = string(promote_to)
+					c.black[i] = c.black[piece]
+					c.black[piece] = 0
+					promotion_idx = i
+					break
+				}
+			}
+		}
+
+	}
+
+	// Check if move was valid by check rules and rollback if invalid
+	if !c.verifyState(team) {
+		if team {
+			c.white[piece] = Piece(start_pos.toByte())
+		} else {
+			c.black[piece] = Piece(start_pos.toByte())
+		}
+		if target {
+			if team {
+				if target_p&0xF == 0 {
+					c.bQ = oldbQ
+				}
+				if target_p&0xF == 7 {
+					c.bK = oldbK
+				}
+				c.black[target_p&0xF] = Piece(ep)
+			} else {
+				if target_p&0xF == 0 {
+					c.wQ = oldwQ
+				}
+				if target_p&0xF == 7 {
+					c.wK = oldwK
+				}
+				c.white[target_p&0xF] = Piece(ep)
+			}
+		}
+
+		if promotion {
+			if team {
+				c.white[promotion_idx] = 0
+			} else {
+				c.black[promotion_idx] = 0
+			}
+
+		}
+		return false, PossibleMove{invalid: true}
+	}
+
+	// Remove checking rights
+	if piece == 4 {
+		if team {
+			c.wK = false
+			c.wQ = false
+		} else {
+			c.bK = false
+			c.bQ = false
+		}
+	}
+
+	c.toMove = !c.toMove
+	return true, PossibleMove{piece: int(piece), end_pos: end_pos,
+		wK: c.wK, wQ: c.wQ, bK: c.bK, bQ: c.bQ,
+		enpassant: c.enpassant,
+		target:    uint8(target_p),
+		promote:   promotion, promote_to: promote_to}
+}
+
+func (c *Chessboard) MakeUnsafeMove(pm PossibleMove, team bool) {
+
+	// Make the Move and check if king is in check
+	if team {
+		c.white[pm.piece] = Piece(pm.end_pos.toByte())
+	} else {
+		c.black[pm.piece] = Piece(pm.end_pos.toByte())
+	}
+	c.bQ = pm.bQ
+	c.bK = pm.bK
+
+	c.wQ = pm.wQ
+	c.wK = pm.wK
+
+	// Capture piece
+	if pm.target != 0 {
+		if team {
+			c.black[pm.target&0x1F] = 0
+		} else {
+			c.white[pm.target&0x1F] = 0
+		}
+	}
+
+	c.enpassant = 0
+
+	if pm.promote {
+		if team {
+			for i := 16; i < 24; i++ {
+				if c.white[i] == 0 {
+					c.whitePieceMap[i] = string(pm.promote_to)
+					c.white[i] = c.white[pm.piece]
+					c.white[pm.piece] = 0
+					break
+				}
+			}
+		} else {
+			for i := 16; i < 24; i++ {
+				if c.black[i] == 0 {
+					c.blackPieceMap[i] = string(pm.promote_to)
+					c.black[i] = c.black[pm.piece]
+					c.black[pm.piece] = 0
+					break
+				}
+			}
+		}
+
+	}
 }
 
 // Duplicate chessboard
@@ -841,17 +1309,18 @@ func (c *Chessboard) SaveState(target *Chessboard) {
 	target.mc = c.mc
 	target.rounds = c.rounds
 
+	target.whitePieceMap = make(map[int]string, 8)
 	target.blackPieceMap = make(map[int]string, 8)
+	target.plays = make(map[string]int)
+
 	for k, v := range c.blackPieceMap {
 		target.blackPieceMap[k] = v
 	}
 
-	target.whitePieceMap = make(map[int]string, 8)
 	for k, v := range c.whitePieceMap {
 		target.whitePieceMap[k] = v
 	}
 
-	target.plays = make(map[string]int)
 	for k, v := range c.plays {
 		target.plays[k] = v
 	}
@@ -913,12 +1382,13 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 					//newBoard := c.Duplicate()
 					c.SaveState(&board)
 
-					if co, _ := board.MakeMove(uint8(idx), team, end_pos, 'q'); !co {
+					var tg PossibleMove
+					var co bool
+					if co, tg = board.TestMove(uint8(idx), team, end_pos, 'q'); !co {
 						continue
 					}
 
-					// If move valid, append to list
-					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos})
+					moves = append(moves, tg)
 
 				}
 			}
@@ -954,11 +1424,13 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 					end_pos.fromByte(value)
 					//newBoard := c.Duplicate()
 					c.SaveState(&board)
-					if co, _ := board.MakeMove(uint8(idx), team, end_pos, 'q'); !co {
+					var tg uint8
+					var co bool
+					if co, tg = board.MakeMove(uint8(idx), team, end_pos, 'q'); !co {
 						continue
 					}
 
-					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos})
+					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos, target: tg})
 
 				}
 			}
@@ -1024,9 +1496,9 @@ func (c *Chessboard) evaluate() float64 {
 		if idx > 15 {
 			rune := c.blackPieceMap[idx][0]
 			realidx := pieceIndexMap[rune][0]
-			total += moveset.Pst[evaluationPieceOffset[realidx]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
+			total -= moveset.Pst[evaluationPieceOffset[realidx]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
 		} else {
-			total += moveset.Pst[evaluationPieceOffset[idx]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
+			total -= moveset.Pst[evaluationPieceOffset[idx]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
 		}
 	}
 	if bpiece <= 5 || wpiece <= 5 {
@@ -1037,7 +1509,7 @@ func (c *Chessboard) evaluate() float64 {
 			locb := c.black[4]
 			total -= math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * math.Min(5-float64(wpiece), 0) * 85
 
-		} else {
+		} else if total > 0 {
 			loc := c.black[4]
 			total -= moveset.Pst[evaluationPieceOffset[4]+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
 
@@ -1050,7 +1522,7 @@ func (c *Chessboard) evaluate() float64 {
 
 func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, num_states *int) (float64, PossibleMove) {
 	if depth == 0 {
-		return c.evaluate(), PossibleMove{}
+		return c.evaluate(), PossibleMove{invalid: true}
 	}
 
 	// Check for stalemate
@@ -1069,14 +1541,14 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, n
 		}
 	}
 	if pcw == pcb && pcw == 1 {
-		return 0, PossibleMove{}
+		return 0, PossibleMove{invalid: true}
 	}
 
-	if c.plays[c.fen()] >= 3 {
+	if *num_states != 0 && c.plays[c.fen()] >= 3 {
 		if team {
-			return 0.01, PossibleMove{}
+			return 0.01, PossibleMove{invalid: true}
 		} else {
-			return 0.01, PossibleMove{}
+			return 0.01, PossibleMove{invalid: true}
 		}
 
 	}
@@ -1090,23 +1562,28 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, n
 
 			if !c.verifyState(team) {
 				// White is checkmated
-				return float64(-100000 * (depth + 1)), PossibleMove{}
+				return float64(-100000 * (depth + 1)), PossibleMove{invalid: true}
 			} else {
 				// White has no legal moves
-				return 0, PossibleMove{}
+				return 0, PossibleMove{invalid: true}
 			}
 		}
 
 		for _, state := range pm {
 			*num_states += 1
 			c.SaveState(&board)
-			board.MakeMove(uint8(state.piece), team, state.end_pos, 'q')
+			board.MakeUnsafeMove(state, team)
 			score, _ := board.minimax(depth-1, alfa, beta, !team, num_states)
-			if score > maxEval {
+			if score == math.Inf(-1) {
+				maxEval = score
+				maxEvalState = state
+			} else if score > 0 && score < 0.1 {
+				// Just ignore it
+			} else if score > maxEval {
 				maxEval = score
 				maxEvalState = state
 				// 10% of chance of getting a similar move (2 pawns of diference)
-			} else if maxEval-score < BOT_POINT_RANDOM_THRESHOLD && rand.Intn(BOT_RANDOM_CHANCE) == 0 {
+			} else if math.Abs(maxEval-score) < BOT_POINT_RANDOM_THRESHOLD && rand.Intn(BOT_RANDOM_CHANCE) == 1 {
 				maxEval = score
 				maxEvalState = state
 			}
@@ -1125,22 +1602,28 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, n
 
 			if !c.verifyState(team) {
 				// black is checkmated
-				return float64(100000 * (depth + 1)), PossibleMove{}
+				return float64(100000 * (depth + 1)), PossibleMove{invalid: true}
 			} else {
 				// black has no legal moves
-				return 0, PossibleMove{}
+				return 0, PossibleMove{invalid: true}
 			}
 		}
 
 		for _, state := range pm {
 			*num_states += 1
 			c.SaveState(&board)
-			board.MakeMove(uint8(state.piece), team, state.end_pos, 'q')
+			board.MakeUnsafeMove(state, team)
 			score, _ := board.minimax(depth-1, alfa, beta, !team, num_states)
-			if score < minEval {
+
+			if score == math.Inf(+1) {
 				minEval = score
 				minEvalState = state
-			} else if minEval-score < BOT_POINT_RANDOM_THRESHOLD && rand.Intn(BOT_RANDOM_CHANCE) == 0 {
+			} else if score > 0 && score < 0.1 {
+				// Just ignore it
+			} else if score < minEval {
+				minEval = score
+				minEvalState = state
+			} else if math.Abs(minEval-score) < BOT_POINT_RANDOM_THRESHOLD && rand.Intn(BOT_RANDOM_CHANCE) == 1 {
 				minEval = score
 				minEvalState = state
 			}
@@ -1162,7 +1645,7 @@ func (c *Chessboard) calculateAllMovements(depth int, layer bool) int {
 		total := 0
 		for _, p := range pm1 {
 			c.SaveState(&Board)
-			Board.MakeMove(uint8(p.piece), layer, p.end_pos, 'q')
+			Board.MakeUnsafeMove(p, layer)
 			total += Board.calculateAllMovements(depth-1, !layer)
 		}
 		return total
@@ -1178,6 +1661,12 @@ var upgrader = websocket.Upgrader{} // use default options
 // Game http handler
 func echo(w http.ResponseWriter, r *http.Request) {
 
+	f, err := os.Create("Game.prof")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
 	// Upgrade conection to websocket
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -1190,20 +1679,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	board := Chessboard{}
 	board.Init()
 
-	for i := 0; i < 16; i++ {
-		board.white[i] = 0
-		board.black[i] = 0
-	}
-
-	board.bK = false
-	board.wQ = false
-	board.bQ = false
-	board.wK = false
-
-	board.white[4] = Piece(pgnToByte("e1"))
-	board.black[4] = Piece(pgnToByte("h4"))
-	board.black[3] = Piece(pgnToByte("h3"))
-	board.black[8] = Piece(pgnToByte("b7"))
+	log.Printf("En passant")
 
 	// Number of moves
 	m := 0
@@ -1253,7 +1729,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 					l.frompgn(move[2])
 
 					rank := string(((board.white[piece] >> 3) & 0b111) + 97)
-					capture := false
+					var capture uint8
 					if !player {
 						rank = string(((board.black[piece] >> 3) & 0b111) + 97)
 					}
@@ -1272,15 +1748,22 @@ func echo(w http.ResponseWriter, r *http.Request) {
 							}
 						}
 
+						capturestr := ""
+						if capture != 0 {
+							capturestr = "x"
+						}
 						if pgn_piece == "p" {
 							pgn_piece = ""
-							if !capture {
+							if capture == 0 {
 								rank = ""
+
 							}
 						}
-						log.Printf("%s%s%s%s ", strings.ToUpper(pgn_piece), rank, map[bool]string{true: "x", false: ""}[capture], l.pgn())
+
+						log.Printf("%s%s%s%s ", strings.ToUpper(pgn_piece), rank, capturestr, l.pgn())
 
 						if !player {
+							m += 1
 							log.Printf("%d. ", m+1)
 						}
 
@@ -1293,22 +1776,23 @@ func echo(w http.ResponseWriter, r *http.Request) {
 					board.plays[board.fen()] += 1
 					start := time.Now()
 					states_analized := 0
-					_, botmove := board.minimax(BOT_MINIMAX_DEPTH, math.Inf(-1), math.Inf(+1), self, &states_analized)
-					//log.Printf("Best Move with Score %f\n", score)
+					score, botmove := board.minimax(BOT_MINIMAX_DEPTH, math.Inf(-1), math.Inf(+1), self, &states_analized)
+					log.Printf("Best Move with Score %f\n", score)
 
 					rank := string(((board.white[botmove.piece] >> 3) & 0b111) + 97)
-					capture := false
+					capture := botmove.target != 0
 					if !self {
 						rank = string(((board.black[botmove.piece] >> 3) & 0b111) + 97)
 					}
-					botvalid, _ = board.MakeMove(uint8(botmove.piece), self, botmove.end_pos, 'q')
-
-					d := time.Since(start)
-
-					log.Printf("Mean %f states/second", float64(states_analized)/d.Seconds())
-					total_time += d
-
+					botvalid := !botmove.invalid
 					if botvalid {
+						board.MakeUnsafeMove(botmove, self)
+
+						d := time.Since(start)
+
+						log.Printf("Mean %f states/second", float64(states_analized)/d.Seconds())
+						total_time += d
+
 						pgn_piece := string(indexPieceMap[botmove.piece])
 
 						if botmove.piece > 15 {
@@ -1331,8 +1815,8 @@ func echo(w http.ResponseWriter, r *http.Request) {
 							m += 1
 							log.Printf("%d. ", m)
 						}
-
 					}
+
 				}
 
 			}
@@ -1351,7 +1835,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Best Move with Score %f\n", score)
 
 				rank := string(((board.white[botmove.piece] >> 3) & 0b111) + 97)
-				capture := false
+				var capture uint8
 				if !self {
 					rank = string(((board.black[botmove.piece] >> 3) & 0b111) + 97)
 				}
@@ -1371,13 +1855,17 @@ func echo(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 
+					capturestr := ""
+					if capture != 0 {
+						capturestr = "x"
+					}
 					if pgn_piece == "p" {
 						pgn_piece = ""
-						if !capture {
+						if capture == 0 {
 							rank = ""
 						}
 					}
-					log.Printf("%s%s%s%s ", strings.ToUpper(pgn_piece), rank, map[bool]string{true: "x", false: ""}[capture], botmove.end_pos.pgn())
+					log.Printf("%s%s%s%s ", strings.ToUpper(pgn_piece), rank, capturestr, botmove.end_pos.pgn())
 
 					if !self {
 						m += 1
@@ -1436,6 +1924,10 @@ func echo(w http.ResponseWriter, r *http.Request) {
 			err = c.WriteMessage(mt, []byte("stalemate"))
 		}
 
+		if pcw+pcb < 5 {
+			BOT_MINIMAX_DEPTH = 7
+		}
+
 		err = c.WriteMessage(mt, []byte(board.fen()))
 		c.WriteMessage(mt, []byte(fmt.Sprintf("eval %.5f", board.evaluate())))
 		if err != nil {
@@ -1486,7 +1978,7 @@ func ai(w http.ResponseWriter, r *http.Request) {
 			}
 			//log.Printf("Best Move with Score %f\n", score)
 			rank := string(((board.white[botmove.piece] >> 3) & 0b111) + 97)
-			capture := false
+			var capture uint8
 			valid, capture = board.MakeMove(uint8(botmove.piece), player, botmove.end_pos, 'q')
 
 			if valid {
@@ -1500,13 +1992,17 @@ func ai(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 
+				capturestr := ""
+				if capture != 0 {
+					capturestr = "x"
+				}
 				if pgn_piece == "p" {
 					pgn_piece = ""
-					if !capture {
+					if capture == 0 {
 						rank = ""
 					}
 				}
-				log.Printf("%s%s%s%s ", strings.ToUpper(pgn_piece), rank, map[bool]string{true: "x", false: ""}[capture], botmove.end_pos.pgn())
+				log.Printf("%s%s%s%s ", strings.ToUpper(pgn_piece), rank, capturestr, botmove.end_pos.pgn())
 			}
 			c.WriteMessage(mt, []byte(board.fen()))
 			time.Sleep(AI_GAME_DELAY)
@@ -1522,7 +2018,7 @@ func ai(w http.ResponseWriter, r *http.Request) {
 				}
 				//log.Printf("Best Move with Score %f\n", score)
 				rank := string(((board.black[botmove.piece] >> 3) & 0b111) + 97)
-				capture := false
+				var capture uint8
 				botvalid, capture = board.MakeMove(uint8(botmove.piece), self, botmove.end_pos, 'q')
 				if botvalid {
 
@@ -1536,13 +2032,17 @@ func ai(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 
+					capturestr := ""
+					if capture != 0 {
+						capturestr = "x"
+					}
 					if pgn_piece == "p" {
 						pgn_piece = ""
-						if !capture {
+						if capture == 0 {
 							rank = ""
 						}
 					}
-					log.Printf("%s%s%s%s ", strings.ToUpper(pgn_piece), rank, map[bool]string{true: "x", false: ""}[capture], botmove.end_pos.pgn())
+					log.Printf("%s%s%s%s ", strings.ToUpper(pgn_piece), rank, capturestr, botmove.end_pos.pgn())
 				}
 				d := time.Since(start)
 				//log.Printf("Time: %s", d)
@@ -1622,7 +2122,7 @@ func ai(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var addr = flag.String("addr", ":"+os.Getenv("PORT"), "http service address")
+var addr = flag.String("addr", "localhost:"+os.Getenv("PORT"), "http service address")
 
 func main() {
 
@@ -1633,12 +2133,30 @@ func main() {
 	flag.Parse()
 	//log.SetFlags(0)
 
-	b := Chessboard{}
+	/*start := time.Now()
+	log.Println(b.calculateAllMovements(4, true))
+	log.Println()*/
+
+	/*b := Chessboard{}
 	b.Init()
 
 	start := time.Now()
-	log.Println(b.calculateAllMovements(4, true))
-	log.Println(time.Since(start))
+	log.Printf("Depth 1 %d time: %dms", b.calculateAllMovements(1, true), time.Since(start)/time.Millisecond)
+
+	start = time.Now()
+	log.Printf("Depth 2 %d time: %dms", b.calculateAllMovements(2, true), time.Since(start)/time.Millisecond)
+
+	start = time.Now()
+	log.Printf("Depth 3 %d time: %dms", b.calculateAllMovements(3, true), time.Since(start)/time.Millisecond)
+
+	start = time.Now()
+	log.Printf("Depth 4 %d time: %dms", b.calculateAllMovements(4, true), time.Since(start)/time.Millisecond)
+
+	start = time.Now()
+	log.Printf("Depth 5 %d time: %dms", b.calculateAllMovements(5, true), time.Since(start)/time.Millisecond)
+
+	start = time.Now()
+	log.Printf("Depth 6 %d time: %dms", b.calculateAllMovements(6, true), time.Since(start)/time.Millisecond)*/
 
 	log.Printf("Server starting at %s", *addr)
 	http.HandleFunc("/echo", echo)

@@ -26,7 +26,7 @@ const connectGame = (state) => {
             const limite = 2000
             const value = Math.max(Math.min(parseFloat(data.data.split(" ")[1]), limite),-limite)
 
-            console.log(value)
+            console.log(parseFloat(data.data.split(" ")[1]))
 
             console.log( ( (value/limite)/2.0 + 0.5 ) * 100.0 );
             setEval( ( (value/limite)/2.0 + 0.5 ) * 100.0 )

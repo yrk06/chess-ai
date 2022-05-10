@@ -33,7 +33,7 @@ const App = (props) => {
       <Row className="mx-auto" style={{ width: "560px" }}>
         <Col>
           <Chessboard className="mx-auto" position={boardPos} sparePieces={false} /*orientation={side}*/
-            darkSquareStyle={{ backgroundColor: "rgb(41, 41, 41)" }}
+            darkSquareStyle={{ backgroundColor: "rgb(71, 71, 71)" }}
             lightSquareStyle={{ backgroundColor: "rgb(66, 245, 242)" }}
             onDrop={({ sourceSquare, targetSquare, piece }) => {
 
