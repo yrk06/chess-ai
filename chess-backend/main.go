@@ -1206,10 +1206,16 @@ func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_
 	}
 
 	c.toMove = !c.toMove
+
+	truetargetp := 0
+	if target {
+		truetargetp = target_p | 1<<5
+	}
+
 	return true, PossibleMove{piece: int(piece), end_pos: end_pos,
 		wK: c.wK, wQ: c.wQ, bK: c.bK, bQ: c.bQ,
 		enpassant: c.enpassant,
-		target:    uint8(target_p),
+		target:    uint8(truetargetp),
 		promote:   promotion, promote_to: promote_to}
 }
 
@@ -1236,7 +1242,7 @@ func (c *Chessboard) MakeUnsafeMove(pm PossibleMove, team bool) {
 		}
 	}
 
-	c.enpassant = 0
+	c.enpassant = pm.enpassant
 
 	if pm.promote {
 		if team {
@@ -1388,6 +1394,10 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 						continue
 					}
 
+					if tg.invalid {
+						log.Panicf("tg invalid at %d %t %s", idx, team, end_pos.pgn())
+					}
+
 					moves = append(moves, tg)
 
 				}
@@ -1424,13 +1434,18 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 					end_pos.fromByte(value)
 					//newBoard := c.Duplicate()
 					c.SaveState(&board)
-					var tg uint8
+
+					var tg PossibleMove
 					var co bool
-					if co, tg = board.MakeMove(uint8(idx), team, end_pos, 'q'); !co {
+					if co, tg = board.TestMove(uint8(idx), team, end_pos, 'q'); !co {
 						continue
 					}
 
-					moves = append(moves, PossibleMove{piece: idx, end_pos: end_pos, target: tg})
+					if tg.invalid {
+						log.Panicf("tg invalid at %d %t %s", idx, team, end_pos.pgn())
+					}
+
+					moves = append(moves, tg)
 
 				}
 			}
@@ -1644,6 +1659,7 @@ func (c *Chessboard) calculateAllMovements(depth int, layer bool) int {
 	if depth > 1 {
 		total := 0
 		for _, p := range pm1 {
+
 			c.SaveState(&Board)
 			Board.MakeUnsafeMove(p, layer)
 			total += Board.calculateAllMovements(depth-1, !layer)
@@ -2137,7 +2153,7 @@ func main() {
 	log.Println(b.calculateAllMovements(4, true))
 	log.Println()*/
 
-	/*b := Chessboard{}
+	b := Chessboard{}
 	b.Init()
 
 	start := time.Now()
@@ -2155,12 +2171,9 @@ func main() {
 	start = time.Now()
 	log.Printf("Depth 5 %d time: %dms", b.calculateAllMovements(5, true), time.Since(start)/time.Millisecond)
 
-	start = time.Now()
-	log.Printf("Depth 6 %d time: %dms", b.calculateAllMovements(6, true), time.Since(start)/time.Millisecond)*/
-
-	log.Printf("Server starting at %s", *addr)
+	/*log.Printf("Server starting at %s", *addr)
 	http.HandleFunc("/echo", echo)
 	http.HandleFunc("/ai", ai)
 	http.Handle("/", http.FileServer(http.Dir("./static/")))
-	http.ListenAndServe(*addr, nil)
+	http.ListenAndServe(*addr, nil)*/
 }
