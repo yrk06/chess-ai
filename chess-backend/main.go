@@ -862,9 +862,9 @@ func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_
 	cep := Location{}
 	if piece == 4 {
 		if team {
-			if c.wK {
-				if end_pos == (Location{x: 6, y: 0}) {
 
+			if end_pos == (Location{x: 6, y: 0}) {
+				if c.wK {
 					if c.isSquareAttacked(!team, start_pos) {
 						return false, PossibleMove{invalid: true}
 					}
@@ -891,11 +891,14 @@ func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_
 					c.wK = false
 					c.wQ = false
 
+				} else {
+					return false, PossibleMove{invalid: true}
 				}
-			}
-			if c.wQ {
-				if end_pos == (Location{x: 2, y: 0}) {
 
+			}
+
+			if end_pos == (Location{x: 2, y: 0}) {
+				if c.wQ {
 					if c.isSquareAttacked(!team, start_pos) {
 						return false, PossibleMove{invalid: true}
 					}
@@ -928,13 +931,15 @@ func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_
 					c.wQ = false
 					cq = true
 
+				} else {
+					return false, PossibleMove{invalid: true}
 				}
 			}
 
 		} else {
-			if c.bK {
-				if end_pos == (Location{x: 6, y: 7}) {
 
+			if end_pos == (Location{x: 6, y: 7}) {
+				if c.bK {
 					if c.isSquareAttacked(!team, start_pos) {
 						return false, PossibleMove{invalid: true}
 					}
@@ -962,9 +967,9 @@ func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_
 					c.bQ = false
 				}
 			}
-			if c.bQ {
-				if end_pos == (Location{x: 2, y: 7}) {
 
+			if end_pos == (Location{x: 2, y: 7}) {
+				if c.bQ {
 					if c.isSquareAttacked(!team, start_pos) {
 						return false, PossibleMove{invalid: true}
 					}
@@ -1357,6 +1362,25 @@ var pieceValue = map[int]int{
 func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 	moves := make([]PossibleMove, 0)
 
+	// Check for stalemate
+	pcw := 0
+	pcb := 0
+
+	for _, p := range c.white {
+		if p != 0 {
+			pcw++
+		}
+	}
+
+	for _, p := range c.black {
+		if p != 0 {
+			pcb++
+		}
+	}
+	if pcw == pcb && pcw == 1 {
+		return moves
+	}
+
 	var board Chessboard
 	// White {} black pieces
 	if team {
@@ -1666,6 +1690,11 @@ func (c *Chessboard) calculateAllMovements(depth int, layer bool) int {
 		}
 		return total
 	} else {
+		for _, p := range pm1 {
+			c.SaveState(&Board)
+			Board.MakeUnsafeMove(p, layer)
+			log.Printf(Board.fen())
+		}
 		total := len(pm1)
 		return total
 	}
@@ -2145,9 +2174,15 @@ func main() {
 	upgrader.CheckOrigin = func(r *http.Request) bool {
 		return true
 	}
+	f, err := os.Create("out")
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	log.SetOutput(f)
 
 	flag.Parse()
-	//log.SetFlags(0)
+	log.SetFlags(0)
 
 	/*start := time.Now()
 	log.Println(b.calculateAllMovements(4, true))
@@ -2156,20 +2191,24 @@ func main() {
 	b := Chessboard{}
 	b.Init()
 
+	tmove := true
+	/*start := time.Now()
+	log.Printf("Depth 1 %d time: %dms", b.calculateAllMovements(1, tmove), time.Since(start)/time.Millisecond)*/
+
+	/*start = time.Now()
+	log.Printf("Depth 2 %d time: %dms", b.calculateAllMovements(2, tmove), time.Since(start)/time.Millisecond)
+
+	start = time.Now()
+	log.Printf("Depth 3 %d time: %dms", b.calculateAllMovements(3, tmove), time.Since(start)/time.Millisecond)*/
+
 	start := time.Now()
-	log.Printf("Depth 1 %d time: %dms", b.calculateAllMovements(1, true), time.Since(start)/time.Millisecond)
+	log.Printf("Depth 5 %d time: %dms", b.calculateAllMovements(5, tmove), time.Since(start)/time.Millisecond)
 
-	start = time.Now()
-	log.Printf("Depth 2 %d time: %dms", b.calculateAllMovements(2, true), time.Since(start)/time.Millisecond)
-
-	start = time.Now()
-	log.Printf("Depth 3 %d time: %dms", b.calculateAllMovements(3, true), time.Since(start)/time.Millisecond)
-
-	start = time.Now()
-	log.Printf("Depth 4 %d time: %dms", b.calculateAllMovements(4, true), time.Since(start)/time.Millisecond)
-
-	start = time.Now()
+	/*start = time.Now()
 	log.Printf("Depth 5 %d time: %dms", b.calculateAllMovements(5, true), time.Since(start)/time.Millisecond)
+
+	start = time.Now()
+	log.Printf("Depth 6 %d time: %dms", b.calculateAllMovements(6, true), time.Since(start)/time.Millisecond)*/
 
 	/*log.Printf("Server starting at %s", *addr)
 	http.HandleFunc("/echo", echo)
