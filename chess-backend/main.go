@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
@@ -16,9 +18,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var BOT_MINIMAX_DEPTH = 6
+// Minimax initial depth
+var BOT_MINIMAX_DEPTH = 5
 
-const BOT_RANDOM_CHANCE = 10
+// Random movement bot control
+const BOT_RANDOM_CHANCE = 200
 const BOT_POINT_RANDOM_THRESHOLD = 10
 const AI_GAME_DELAY = 1000000000 * 0.0
 
@@ -32,6 +36,8 @@ Offset	Piece
 17920	QUEEN
 21504	KING
 */
+
+// piece type to movement memory offset map  Tabela de offset de memoria (movimentos) pra cada peça
 var pieceMap = map[byte]int{
 	'p': 0,
 	'P': 3584,
@@ -52,62 +58,79 @@ var pieceMap = map[byte]int{
 	'K': 25088,
 }
 
+// Location Type
 type Location struct {
 	x int
 	y int
 }
 
+// Converts a location object to FEN string index
 func (l *Location) toFen() int {
 	return (7-l.y)*9 + (l.x)
 }
 
+// Converts a location object to PGN
 func (l *Location) pgn() string {
 	return fmt.Sprintf("%s%d", string(l.x+97), l.y+1)
 }
 
+// Loads a position from a PGN
 func (l *Location) frompgn(pos string) {
 	l.x = int(pos[0]) - 97
 	l.y = int(pos[1]-'0') - 1
 }
 
+// Converts a location to Byte
 func (l *Location) toByte() uint8 {
 	return uint8((1 << 7) | ((l.x & 0b111) << 3) | (l.y & 0b111))
 }
 
+// Loads a location from a byte
 func (l *Location) fromByte(b uint8) {
 	l.x = int((b >> 3) & 0b111)
 	l.y = int((b) & 0b111)
 }
 
+// Transforms a PGN to a byte
 func pgnToByte(pgn string) uint8 {
 	l := Location{}
 	l.frompgn(pgn)
 	return l.toByte()
 }
 
+// Holds a possible move and changes to board state
 type PossibleMove struct {
-	score      float64
-	piece      int
-	spiece     int
-	send_pos   Location
-	end_pos    Location
-	enpassant  uint8
-	target     uint8
-	wK         bool
-	wQ         bool
-	bK         bool
-	bQ         bool
+	score float64
+
+	piece   int
+	end_pos Location
+
+	castle   bool
+	spiece   int
+	send_pos Location
+
+	enpassant uint8
+
+	target uint8
+
+	wK bool
+	wQ bool
+	bK bool
+	bQ bool
+
 	promote    bool
 	promote_to byte
-	invalid    bool
+
+	invalid bool
 }
 
 type Piece uint8
 
+// Player piece array. Holds 16 regular pieces and 8 aditional pieces for promotion
 type PlayerPieces [24]Piece
 
 /*
-	Map from playerPiece index to char representation of pieces
+	Piece index to char representation map
 */
 var indexPieceMap = map[int]string{
 	0:  "r",
@@ -129,7 +152,7 @@ var indexPieceMap = map[int]string{
 }
 
 /*
-	Map from char representation to possible index
+	Char representation to possible Piece index map
 */
 var pieceIndexMap = map[byte][]int{
 	'r': {0, 7, 16, 17, 18, 19, 20, 21, 22, 23},
@@ -146,21 +169,27 @@ var pieceIndexMap = map[byte][]int{
 type Chessboard struct {
 	white         PlayerPieces
 	whitePieceMap map[int]string
+
 	black         PlayerPieces
 	blackPieceMap map[int]string
-	toMove        bool
-	wK            bool
-	wQ            bool
-	bK            bool
-	bQ            bool
-	enpassant     uint8
-	mc            int
-	rounds        int
-	plays         map[string]int
+
+	toMove bool
+
+	wK bool
+	wQ bool
+	bK bool
+	bQ bool
+
+	enpassant uint8
+
+	mc     int
+	rounds int
+
+	plays map[int]int
 }
 
 /*
-	Init checkboard with starting position
+	Starts the chessboard at the start location
 */
 func (c *Chessboard) Init() {
 
@@ -177,7 +206,7 @@ func (c *Chessboard) Init() {
 	c.whitePieceMap = make(map[int]string, 8)
 	c.blackPieceMap = make(map[int]string, 8)
 
-	c.plays = make(map[string]int)
+	c.plays = make(map[int]int)
 
 	// Init white pieces
 	for y := 0; y < 2; y++ {
@@ -187,7 +216,7 @@ func (c *Chessboard) Init() {
 		}
 	}
 
-	// Init white pieces
+	// Init black pieces
 	for y := 0; y < 2; y++ {
 		for x := 0; x < 8; x++ {
 			l := Location{x: x, y: 7 - y}
@@ -197,10 +226,63 @@ func (c *Chessboard) Init() {
 
 }
 
-func (c *Chessboard) init() {
-	c.blackPieceMap = make(map[int]string, 8)
-	c.whitePieceMap = make(map[int]string, 8)
-	c.plays = make(map[string]int)
+// Zobrist hash table data
+var zhtable [64][18]int64
+var zh_black_to_move int64
+var zh_depth [10]int64
+
+// Init the Zobrist hash table used for hasing
+func init_zhtable() {
+	rand.Seed(190520024679183427)
+
+	for idx := range zhtable {
+		for idx2 := range zhtable[idx] {
+			zhtable[idx][idx2] = rand.Int63()
+		}
+	}
+	zh_black_to_move = rand.Int63()
+
+	for idx := range zh_depth {
+		zh_depth[idx] = rand.Int63()
+	}
+}
+
+// Hashes a Board into an int64
+func (c *Chessboard) zobristHash() int64 {
+	var h int64
+	if !c.toMove {
+		h = h ^ zh_black_to_move
+	}
+	for idx, pos := range c.white {
+		if pos == 0 {
+			continue
+		}
+		index := 0
+		if idx > 15 {
+			index = pieceIndexMap[c.whitePieceMap[idx][0]][0]
+		} else {
+			index = pieceIndexMap[indexPieceMap[idx][0]][0]
+		}
+
+		h = h ^ zhtable[(pos>>3)&0b111+(pos&0b111*8)][index]
+
+	}
+
+	for idx, pos := range c.black {
+		if pos == 0 {
+			continue
+		}
+		index := 0
+		if idx > 15 {
+			index = pieceIndexMap[c.blackPieceMap[idx][0]][0]
+		} else {
+			index = pieceIndexMap[indexPieceMap[idx][0]][0]
+		}
+
+		h = h ^ zhtable[(pos>>3)&0b111+(pos&0b111*8)][index+8]
+
+	}
+	return h
 }
 
 //rnbqkbnr/pppppppp/11111111/11111111/11111111/11111111/PPPPPPPP/RNBQKBNR w KQkq - 0 1
@@ -275,6 +357,92 @@ func (c *Chessboard) fen() string {
 	return string(fen)
 }
 
+// Load a board from a FEN string
+func (c *Chessboard) fromFen(fen string) {
+	c.plays = make(map[int]int)
+	c.whitePieceMap = make(map[int]string, 8)
+	c.blackPieceMap = make(map[int]string, 8)
+	cchar := 0
+	for i := 0; i < 64; i++ {
+		char := fen[cchar]
+		if char > 'a' && char < 'z' {
+			for _, v := range pieceIndexMap[char] {
+				if c.black[v] == 0 {
+					if v >= 16 {
+						c.blackPieceMap[v] = string(char)
+					}
+					l := Location{
+						x: i % 8,
+						y: 7 - i/8,
+					}
+					c.black[v] = Piece(l.toByte())
+					break
+				}
+
+			}
+		} else if char > 'A' && char < 'Z' {
+			lcchar := strings.ToLower(string(char))[0]
+			for _, v := range pieceIndexMap[lcchar] {
+				if c.white[v] == 0 {
+					if v >= 16 {
+						c.whitePieceMap[v] = string(lcchar)
+					}
+					l := Location{
+						x: i % 8,
+						y: 7 - i/8,
+					}
+					c.white[v] = Piece(l.toByte())
+					break
+				}
+			}
+		} else if char == '/' {
+			i--
+		} else {
+			jumps := int(char - '0')
+			i += jumps - 1
+		}
+		cchar++
+	}
+
+	cchar += 2
+	if fen[cchar] == 'w' {
+		c.toMove = true
+	}
+	cchar += 2
+	for ; ; cchar++ {
+		char := fen[cchar]
+		if char == '-' {
+			cchar += 2
+			break
+		} else if char == ' ' {
+			cchar += 1
+			break
+		}
+
+		if char == 'q' {
+			c.bQ = true
+		}
+		if char == 'k' {
+			c.bK = true
+		}
+		if char == 'Q' {
+			c.wQ = true
+		}
+		if char == 'Q' {
+			c.wK = true
+		}
+
+	}
+	if fen[cchar] != '-' {
+		str := ""
+		str += string(fen[cchar])
+		cchar++
+		str += string(fen[cchar])
+
+		c.enpassant = pgnToByte(str)
+	}
+}
+
 /*
 	Check if there are any pieces in the posisiton. Takes into account en passant (ghost piece).
 	bit 5 is 1 if piece is white 0 otherwise
@@ -284,7 +452,11 @@ func (c *Chessboard) hasPieceInPosition(position uint8, enpassant bool) (bool, i
 	// Start with calculating En passant
 	if enpassant {
 		if position == c.enpassant {
-			return true, int(((position >> 3) & 0b111) + 8)
+			hp, piece := c.hasPieceInPosition(position+1, false)
+			if !hp {
+				_, piece = c.hasPieceInPosition(position-1, false)
+			}
+			return true, piece
 		}
 	}
 
@@ -810,10 +982,18 @@ func (c *Chessboard) MakeMove(piece uint8, team bool, end_pos Location, promote_
 		}
 	}
 
+	truetargetp := 0
+	if target {
+		truetargetp = target_p | 1<<5
+	}
+
 	c.toMove = !c.toMove
-	return true, uint8(target_p | 1<<5)
+	return true, uint8(truetargetp)
 }
 
+/*
+	Attemps to move PIECE and returns a possible move struct
+*/
 func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_to byte) (bool, PossibleMove) {
 
 	// Setup Vars
@@ -849,6 +1029,7 @@ func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_
 	}
 
 	// Control variables
+	predicted_score := 0.0
 	valid := false
 	enpassant := false
 	enpassant_active := false
@@ -1007,11 +1188,12 @@ func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_
 	}
 	if castling {
 		c.toMove = !c.toMove
-		tower := 0
+		tower := 7
 		if cq {
-			tower = 7
+			tower = 0
 		}
-		return true, PossibleMove{piece: int(piece), end_pos: end_pos, spiece: tower, send_pos: cep, wK: c.wK, wQ: c.wQ, bK: c.bK, bQ: c.bQ}
+		predicted_score += 3
+		return true, PossibleMove{castle: true, score: predicted_score, piece: int(piece), end_pos: end_pos, spiece: tower, send_pos: cep, wK: c.wK, wQ: c.wQ, bK: c.bK, bQ: c.bQ}
 	}
 
 	// Check if piece can move there
@@ -1113,6 +1295,10 @@ func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_
 
 	// Capture piece
 	if target {
+		predicted_score += 5
+		if piece >= 8 && piece < 16 {
+			predicted_score += 5
+		}
 		if team {
 			if target_p&0x1F == 0 {
 				c.bQ = false
@@ -1137,6 +1323,7 @@ func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_
 	}
 
 	if promotion {
+		predicted_score += 10
 		if team {
 			for i := 16; i < 24; i++ {
 				if c.white[i] == 0 {
@@ -1199,8 +1386,9 @@ func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_
 		return false, PossibleMove{invalid: true}
 	}
 
-	// Remove checking rights
+	// Remove castling rights
 	if piece == 4 {
+		predicted_score -= 3
 		if team {
 			c.wK = false
 			c.wQ = false
@@ -1217,20 +1405,29 @@ func (c *Chessboard) TestMove(piece uint8, team bool, end_pos Location, promote_
 		truetargetp = target_p | 1<<5
 	}
 
-	return true, PossibleMove{piece: int(piece), end_pos: end_pos,
+	return true, PossibleMove{score: predicted_score, piece: int(piece), end_pos: end_pos,
 		wK: c.wK, wQ: c.wQ, bK: c.bK, bQ: c.bQ,
 		enpassant: c.enpassant,
 		target:    uint8(truetargetp),
 		promote:   promotion, promote_to: promote_to}
 }
 
+/*
+	Makes a move from a PossibleMove (no validity checks are made)
+*/
 func (c *Chessboard) MakeUnsafeMove(pm PossibleMove, team bool) {
 
 	// Make the Move and check if king is in check
 	if team {
 		c.white[pm.piece] = Piece(pm.end_pos.toByte())
+		if pm.castle {
+			c.white[pm.spiece] = Piece(pm.send_pos.toByte())
+		}
 	} else {
 		c.black[pm.piece] = Piece(pm.end_pos.toByte())
+		if pm.castle {
+			c.black[pm.spiece] = Piece(pm.send_pos.toByte())
+		}
 	}
 	c.bQ = pm.bQ
 	c.bK = pm.bK
@@ -1299,7 +1496,7 @@ func (c *Chessboard) Duplicate() Chessboard {
 		board.whitePieceMap[k] = v
 	}
 
-	board.plays = make(map[string]int)
+	board.plays = make(map[int]int)
 	for k, v := range c.plays {
 		board.plays[k] = v
 	}
@@ -1307,6 +1504,9 @@ func (c *Chessboard) Duplicate() Chessboard {
 	return board
 }
 
+/*
+	Saves a state (does not create a new object in memory)
+*/
 func (c *Chessboard) SaveState(target *Chessboard) {
 
 	target.white = c.white
@@ -1322,7 +1522,7 @@ func (c *Chessboard) SaveState(target *Chessboard) {
 
 	target.whitePieceMap = make(map[int]string, 8)
 	target.blackPieceMap = make(map[int]string, 8)
-	target.plays = make(map[string]int)
+	target.plays = make(map[int]int)
 
 	for k, v := range c.blackPieceMap {
 		target.blackPieceMap[k] = v
@@ -1358,7 +1558,7 @@ var pieceValue = map[int]int{
 	15: 100,
 }
 
-// Calculate all possible moves
+// Calculate all possible moves for a team
 func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 	moves := make([]PossibleMove, 0)
 
@@ -1476,9 +1676,13 @@ func (c *Chessboard) possibleMoves(team bool) []PossibleMove {
 		}
 	}
 
+	/*sort.SliceStable(moves, func(i, j int) bool {
+		return moves[i].score > moves[i].score
+	})*/
 	return moves
 }
 
+// Maps from Piece index to Evaluation memory offset
 var evaluationPieceOffset = map[int]int{
 	0:  64 * 3,
 	1:  64 * 1,
@@ -1555,12 +1759,100 @@ func (c *Chessboard) evaluate() float64 {
 			locb := c.white[4]
 			total += math.Abs(float64((loc>>3)&0b111-(locb>>3)&0b111+(loc)&0b111-(locb)&0b111)) * math.Min(5-float64(bpiece), 0) * 85
 		}
+	} else {
+		loc := c.white[4]
+		total += moveset.Pst[evaluationPieceOffset[4]+64+int((loc>>3)&0b111)+8*int((loc&0b111))]
+
+		loc = c.black[4]
+		total -= moveset.Pst[evaluationPieceOffset[4]+64+int((loc>>3)&0b111)+56-8*int((loc&0b111))]
 	}
 	return total
 }
 
+// Transposition Table
+var transposition_table = make(map[int64]TranspositionEntry)
+
+type TranspositionEntry struct {
+	score float64
+	depth int
+}
+
+//var TP_mutex sync.RWMutex
+
+// Save transposition data to memory
+func save_transposition_table(filename string) {
+	/*TP_mutex.RLock()
+	defer TP_mutex.RUnlock()*/
+	f, err := os.Create(filename)
+	if err != nil {
+		log.Panic(err)
+	}
+	defer f.Close()
+	for key, val := range transposition_table {
+
+		keybuf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(keybuf, uint64(key))
+		bits := math.Float64bits(val.score)
+		valbuf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(valbuf, uint64(bits))
+
+		valbuf2 := make([]byte, 2)
+		binary.LittleEndian.PutUint16(valbuf2, uint16(val.depth))
+
+		f.Write([]byte(fmt.Sprintf("%s/+++++++/%s/+++++++/%s\n", keybuf, valbuf, valbuf2)))
+	}
+}
+
+func Readln(r *bufio.Reader) (string, error) {
+	var (
+		isPrefix bool  = true
+		err      error = nil
+		line, ln []byte
+	)
+	for isPrefix && err == nil {
+		line, isPrefix, err = r.ReadLine()
+		ln = append(ln, line...)
+	}
+	return string(ln), err
+}
+
+// Loads transposition table from file
+func load_transposition_table(filename string) {
+	/*TP_mutex.Lock()
+	defer TP_mutex.Unlock()*/
+	f, err := os.Open(filename)
+	if err != nil {
+		log.Println("Could not open file")
+		return
+	}
+	defer f.Close()
+	r := bufio.NewReader(f)
+	s, e := r.ReadBytes('\n')
+	for e == nil && len(s) > 0 {
+
+		str := string(s)
+		t := strings.Split(str, "/+++++++/")
+		if len(t) < 3 {
+			continue
+		}
+		log.Println(t[0])
+		log.Println(t[1])
+		log.Println(t[2])
+
+		v := binary.LittleEndian.Uint64([]byte(t[0]))
+		score := math.Float64frombits(binary.LittleEndian.Uint64([]byte(t[1])))
+		depth := binary.LittleEndian.Uint16([]byte(t[2]))
+
+		transposition_table[int64(v)] = TranspositionEntry{score: score, depth: int(depth)}
+
+		s, e = r.ReadBytes('\n')
+	}
+}
+
+// Calculate the best movement for a TEAM
 func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, num_states *int) (float64, PossibleMove) {
 	if depth == 0 {
+		*num_states += 1
 		return c.evaluate(), PossibleMove{invalid: true}
 	}
 
@@ -1583,12 +1875,26 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, n
 		return 0, PossibleMove{invalid: true}
 	}
 
-	if *num_states != 0 && c.plays[c.fen()] >= 3 {
-		if team {
-			return 0.01, PossibleMove{invalid: true}
-		} else {
-			return 0.01, PossibleMove{invalid: true}
+	zh := c.zobristHash()
+
+	if *num_states != 0 {
+		if c.plays[int(zh)] >= 3 {
+			if team {
+				return 0.01, PossibleMove{invalid: true}
+			} else {
+				return 0.01, PossibleMove{invalid: true}
+			}
+
 		}
+		//TP_mutex.RLock()
+		if val, ok := transposition_table[zh]; ok {
+			if val.depth >= depth {
+				//TP_mutex.RUnlock()
+				*num_states += 1
+				return val.score, PossibleMove{}
+			}
+		}
+		//TP_mutex.RUnlock()
 
 	}
 
@@ -1632,6 +1938,9 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, n
 			}
 		}
 
+		//TP_mutex.Lock()
+		transposition_table[zh] = TranspositionEntry{score: maxEval, depth: depth}
+		//TP_mutex.Unlock()
 		return maxEval, maxEvalState
 	} else {
 		minEval := math.Inf(+1)
@@ -1672,9 +1981,13 @@ func (c *Chessboard) minimax(depth int, alfa float64, beta float64, team bool, n
 			}
 		}
 
+		//TP_mutex.Lock()
+		transposition_table[zh] = TranspositionEntry{score: minEval, depth: depth}
+		//TP_mutex.Unlock()
 		return minEval, minEvalState
 	}
 }
+
 
 func (c *Chessboard) calculateAllMovements(depth int, layer bool) int {
 	pm1 := c.possibleMoves(layer)
@@ -1690,11 +2003,11 @@ func (c *Chessboard) calculateAllMovements(depth int, layer bool) int {
 		}
 		return total
 	} else {
-		for _, p := range pm1 {
+		/*for _, p := range pm1 {
 			c.SaveState(&Board)
 			Board.MakeUnsafeMove(p, layer)
 			log.Printf(Board.fen())
-		}
+		}*/
 		total := len(pm1)
 		return total
 	}
@@ -1702,6 +2015,8 @@ func (c *Chessboard) calculateAllMovements(depth int, layer bool) int {
 }
 
 var upgrader = websocket.Upgrader{} // use default options
+
+var startpos = flag.String("startpos", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "FEN for starting position")
 
 // Game http handler
 func echo(w http.ResponseWriter, r *http.Request) {
@@ -1722,9 +2037,9 @@ func echo(w http.ResponseWriter, r *http.Request) {
 
 	//Create chessboard
 	board := Chessboard{}
-	board.Init()
-
-	log.Printf("En passant")
+	board.fromFen(*startpos)
+	//board.Init()
+	//board.fromFen("r1b111k1/1pp111p1/p1111p1p/P11n1111/11PpR1P1/1111111P/1P1K1P11/R1111111 b - c3 0 1")
 
 	// Number of moves
 	m := 0
@@ -1732,6 +2047,11 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	//Which team they are
 	self := false
 	player := true
+
+	end_game := false
+
+	bot_local_minimax_depth := BOT_MINIMAX_DEPTH
+
 	var total_time time.Duration
 	for {
 
@@ -1818,11 +2138,16 @@ func echo(w http.ResponseWriter, r *http.Request) {
 
 				// Bot
 				if valid {
-					board.plays[board.fen()] += 1
+					board.plays[int(board.zobristHash())] += 1
 					start := time.Now()
 					states_analized := 0
-					score, botmove := board.minimax(BOT_MINIMAX_DEPTH, math.Inf(-1), math.Inf(+1), self, &states_analized)
-					log.Printf("Best Move with Score %f\n", score)
+					score, botmove := board.minimax(bot_local_minimax_depth, math.Inf(-1), math.Inf(+1), self, &states_analized)
+					if math.Abs(score) >= 100000 {
+						depth_found := (math.Abs(score) / 100000) - 1
+						log.Printf("Best Move M%d\n", bot_local_minimax_depth-int(depth_found))
+					} else {
+						log.Printf("Best Move with Score %f\n", score)
+					}
 
 					rank := string(((board.white[botmove.piece] >> 3) & 0b111) + 97)
 					capture := botmove.target != 0
@@ -1835,8 +2160,21 @@ func echo(w http.ResponseWriter, r *http.Request) {
 
 						d := time.Since(start)
 
-						log.Printf("Mean %f states/second", float64(states_analized)/d.Seconds())
+						log.Printf("States %d, %fs, Mean %f states/second", states_analized, d.Seconds(), float64(states_analized)/d.Seconds())
 						total_time += d
+
+						if end_game {
+							if d.Seconds() < 15 && bot_local_minimax_depth < 8 {
+								bot_local_minimax_depth += 1
+								log.Printf("Deepening search to %d", bot_local_minimax_depth)
+							} else if d.Seconds() < 10 && bot_local_minimax_depth < 11 {
+								bot_local_minimax_depth += 1
+								log.Printf("Deepening search to %d", bot_local_minimax_depth)
+							} else if d.Seconds() > 210 {
+								bot_local_minimax_depth -= 1
+								log.Printf("Shallowing search to %d", bot_local_minimax_depth)
+							}
+						}
 
 						pgn_piece := string(indexPieceMap[botmove.piece])
 
@@ -1923,12 +2261,15 @@ func echo(w http.ResponseWriter, r *http.Request) {
 		}
 
 		board.rounds = m
-		//log.Printf("recv: %s", message)
 
 		// Test for checkmate or draw
 		if botvalid {
 
-			board.plays[board.fen()] += 1
+			board.plays[int(board.zobristHash())] += 1
+
+		}
+
+		if board.toMove == player {
 			if len(board.possibleMoves(player)) == 0 {
 
 				if !board.verifyState(player) {
@@ -1969,8 +2310,8 @@ func echo(w http.ResponseWriter, r *http.Request) {
 			err = c.WriteMessage(mt, []byte("stalemate"))
 		}
 
-		if pcw+pcb < 5 {
-			BOT_MINIMAX_DEPTH = 7
+		if pcw+pcb < 15 {
+			end_game = true
 		}
 
 		err = c.WriteMessage(mt, []byte(board.fen()))
@@ -1979,8 +2320,13 @@ func echo(w http.ResponseWriter, r *http.Request) {
 			log.Println("write:", err)
 			break
 		}
+		if m%2 == 0 && m != 0 {
+			save_transposition_table("tpmemory3.tp")
+		}
 	}
+	save_transposition_table("tpmemory3.tp")
 }
+
 
 func ai(w http.ResponseWriter, r *http.Request) {
 
@@ -2054,7 +2400,7 @@ func ai(w http.ResponseWriter, r *http.Request) {
 
 			// Bot
 			if valid {
-				board.plays[board.fen()] += 1
+				board.plays[int(board.zobristHash())] += 1
 				start := time.Now()
 				states := 0
 				score, botmove := board.minimax(BOT_MINIMAX_DEPTH, math.Inf(-1), math.Inf(+1), self, &states)
@@ -2106,7 +2452,7 @@ func ai(w http.ResponseWriter, r *http.Request) {
 
 			m += 1
 			log.Printf("%d. ", m)
-			board.plays[board.fen()] += 1
+			board.plays[int(board.zobristHash())] += 1
 			if len(board.possibleMoves(player)) == 0 {
 
 				if !board.verifyState(player) {
@@ -2167,52 +2513,39 @@ func ai(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var addr = flag.String("addr", "localhost:"+os.Getenv("PORT"), "http service address")
+var addr = flag.String("addr", "localhost:8080", "http service address")
 
-func main() {
-
-	upgrader.CheckOrigin = func(r *http.Request) bool {
-		return true
-	}
-	f, err := os.Create("out")
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-	log.SetOutput(f)
-
-	flag.Parse()
-	log.SetFlags(0)
-
-	/*start := time.Now()
-	log.Println(b.calculateAllMovements(4, true))
-	log.Println()*/
-
-	b := Chessboard{}
-	b.Init()
-
-	tmove := true
-	/*start := time.Now()
-	log.Printf("Depth 1 %d time: %dms", b.calculateAllMovements(1, tmove), time.Since(start)/time.Millisecond)*/
-
-	/*start = time.Now()
-	log.Printf("Depth 2 %d time: %dms", b.calculateAllMovements(2, tmove), time.Since(start)/time.Millisecond)
-
-	start = time.Now()
-	log.Printf("Depth 3 %d time: %dms", b.calculateAllMovements(3, tmove), time.Since(start)/time.Millisecond)*/
-
-	start := time.Now()
-	log.Printf("Depth 5 %d time: %dms", b.calculateAllMovements(5, tmove), time.Since(start)/time.Millisecond)
-
-	/*start = time.Now()
-	log.Printf("Depth 5 %d time: %dms", b.calculateAllMovements(5, true), time.Since(start)/time.Millisecond)
-
-	start = time.Now()
-	log.Printf("Depth 6 %d time: %dms", b.calculateAllMovements(6, true), time.Since(start)/time.Millisecond)*/
-
-	/*log.Printf("Server starting at %s", *addr)
+func start_server() {
+	log.Printf("Server starting at %s", *addr)
 	http.HandleFunc("/echo", echo)
 	http.HandleFunc("/ai", ai)
 	http.Handle("/", http.FileServer(http.Dir("./static/")))
-	http.ListenAndServe(*addr, nil)*/
+	http.ListenAndServe(*addr, nil)
+}
+
+func main() {
+
+	//load_transposition_table("tpmemory3.tp")
+	upgrader.CheckOrigin = func(r *http.Request) bool {
+		return true
+	}
+
+	flag.Parse()
+	//log.SetFlags(0)
+	init_zhtable()
+
+	/*err := exec.Command("rundll32", "url.dll,FileProtocolHandler", fmt.Sprintf("http://%s/", *addr)).Start()
+	if err != nil {
+		log.Fatal(err)
+	}*/
+
+	start_server()
+
+	/*debug := true
+	w := webview.New(debug)
+	defer w.Destroy()
+	w.SetTitle("Extreme Go Chess")
+	w.SetSize(800, 800, webview.Hint(webview.HintNone))
+	w.Navigate(fmt.Sprintf("http://%s/?s=black", *addr))
+	w.Run()*/
 }
